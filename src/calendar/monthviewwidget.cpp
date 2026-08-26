@@ -1,0 +1,192 @@
+#include "monthviewwidget.h"
+#include "ui_monthviewwidget.h"
+
+#include "monthdaycellwidget.h"
+#include "monthgrid.h"
+
+#include <QFont>
+#include <QLabel>
+#include <QLocale>
+#include <algorithm>
+
+MonthViewWidget::MonthViewWidget(QWidget *parent)
+    : QWidget(parent)
+    , ui(new Ui::MonthViewWidget)
+{
+    ui->setupUi(this);
+
+    buildWeekdayHeader();
+
+    m_cells.reserve(42);
+    for (int i = 0; i < 42; ++i) {
+        auto *cell = new MonthDayCellWidget(this);
+        connect(cell, &MonthDayCellWidget::clicked, this, &MonthViewWidget::onCellClicked);
+        connect(cell, &MonthDayCellWidget::doubleClicked, this, &MonthViewWidget::newEventRequested);
+        connect(cell, &MonthDayCellWidget::eventEditRequested, this, &MonthViewWidget::eventEditRequested);
+        ui->daysGridLayout->addWidget(cell, 1 + i / 7, i % 7);
+        m_cells.append(cell);
+    }
+    for (int col = 0; col < 7; ++col)
+        ui->daysGridLayout->setColumnStretch(col, 1);
+    for (int row = 1; row <= 6; ++row)
+        ui->daysGridLayout->setRowStretch(row, 1);
+
+    connect(ui->prevMonthButton, &QToolButton::clicked, this, &MonthViewWidget::goToPreviousMonth);
+    connect(ui->nextMonthButton, &QToolButton::clicked, this, &MonthViewWidget::goToNextMonth);
+    connect(ui->todayButton, &QPushButton::clicked, this, &MonthViewWidget::goToToday);
+    connect(ui->newEventButton, &QPushButton::clicked, this, [this] { emit newEventRequested(m_selectedDate); });
+
+    const QDate today = QDate::currentDate();
+    m_displayedMonth = QDate(today.year(), today.month(), 1);
+    m_selectedDate = today;
+
+    refreshCells();
+    updateMonthYearLabel();
+    updateCellStates();
+}
+
+MonthViewWidget::~MonthViewWidget()
+{
+    delete ui;
+}
+
+void MonthViewWidget::buildWeekdayHeader()
+{
+    const Qt::DayOfWeek firstDayOfWeek = QLocale::system().firstDayOfWeek();
+    for (int col = 0; col < 7; ++col) {
+        const int dow = 1 + ((static_cast<int>(firstDayOfWeek) - 1 + col) % 7);
+        auto *label = new QLabel(QLocale::system().dayName(dow, QLocale::ShortFormat), this);
+        label->setAlignment(Qt::AlignCenter);
+        QFont font = label->font();
+        font.setBold(true);
+        label->setFont(font);
+        ui->daysGridLayout->addWidget(label, 0, col);
+    }
+}
+
+void MonthViewWidget::refreshCells()
+{
+    // Defensive belt-and-suspenders: the view can never show stale events
+    // for the wrong grid, independent of whether a controller remembers to
+    // clear them before navigating.
+    m_cellByDate.clear();
+
+    const QList<QDate> dates = MonthGrid::datesForGrid(m_displayedMonth, QLocale::system().firstDayOfWeek());
+    for (int i = 0; i < m_cells.size(); ++i) {
+        const QDate &date = dates.at(i);
+        m_cells[i]->setDate(date);
+        m_cells[i]->setInCurrentMonth(date.year() == m_displayedMonth.year() && date.month() == m_displayedMonth.month());
+        m_cells[i]->setEvents({});
+        m_cellByDate.insert(date, m_cells[i]);
+    }
+}
+
+void MonthViewWidget::setEventsForCalendar(const QString &calendarId, const QHash<QDate, QList<MonthDayEventItem>> &eventsByDate)
+{
+    m_eventsByCalendar.insert(calendarId, eventsByDate);
+    rebuildAllCellEventLists();
+}
+
+void MonthViewWidget::clearEventsForCalendar(const QString &calendarId)
+{
+    if (m_eventsByCalendar.remove(calendarId) > 0)
+        rebuildAllCellEventLists();
+}
+
+void MonthViewWidget::clearAllEvents()
+{
+    m_eventsByCalendar.clear();
+    rebuildAllCellEventLists();
+}
+
+void MonthViewWidget::rebuildAllCellEventLists()
+{
+    QHash<QDate, QList<MonthDayEventItem>> merged;
+    for (auto calendarIt = m_eventsByCalendar.constBegin(); calendarIt != m_eventsByCalendar.constEnd(); ++calendarIt) {
+        const QHash<QDate, QList<MonthDayEventItem>> &byDate = calendarIt.value();
+        for (auto dateIt = byDate.constBegin(); dateIt != byDate.constEnd(); ++dateIt)
+            merged[dateIt.key()].append(dateIt.value());
+    }
+
+    for (auto it = merged.begin(); it != merged.end(); ++it) {
+        std::stable_sort(it->begin(), it->end(), [](const MonthDayEventItem &a, const MonthDayEventItem &b) {
+            if (a.allDay != b.allDay)
+                return a.allDay; // all-day events first
+            if (a.allDay)
+                return false;
+            return a.startInstant < b.startInstant;
+        });
+    }
+
+    for (auto cellIt = m_cellByDate.constBegin(); cellIt != m_cellByDate.constEnd(); ++cellIt)
+        cellIt.value()->setEvents(merged.value(cellIt.key()));
+}
+
+void MonthViewWidget::updateMonthYearLabel()
+{
+    ui->monthYearLabel->setText(QStringLiteral("%1 %2")
+                                     .arg(QLocale::system().standaloneMonthName(m_displayedMonth.month(), QLocale::LongFormat))
+                                     .arg(m_displayedMonth.year()));
+}
+
+void MonthViewWidget::updateCellStates()
+{
+    const QDate today = QDate::currentDate();
+    for (MonthDayCellWidget *cell : std::as_const(m_cells)) {
+        cell->setIsToday(cell->date() == today);
+        cell->setSelected(cell->date() == m_selectedDate);
+    }
+}
+
+void MonthViewWidget::goToPreviousMonth()
+{
+    m_displayedMonth = m_displayedMonth.addMonths(-1);
+    refreshCells();
+    updateMonthYearLabel();
+    updateCellStates();
+    emit displayedMonthChanged(m_displayedMonth);
+}
+
+void MonthViewWidget::goToNextMonth()
+{
+    m_displayedMonth = m_displayedMonth.addMonths(1);
+    refreshCells();
+    updateMonthYearLabel();
+    updateCellStates();
+    emit displayedMonthChanged(m_displayedMonth);
+}
+
+void MonthViewWidget::goToToday()
+{
+    const QDate today = QDate::currentDate();
+    m_displayedMonth = QDate(today.year(), today.month(), 1);
+    m_selectedDate = today;
+    refreshCells();
+    updateMonthYearLabel();
+    updateCellStates();
+    emit displayedMonthChanged(m_displayedMonth);
+    emit dateSelected(m_selectedDate);
+}
+
+void MonthViewWidget::selectDate(const QDate &date)
+{
+    const bool monthChanged = date.year() != m_displayedMonth.year() || date.month() != m_displayedMonth.month();
+    m_selectedDate = date;
+
+    if (monthChanged) {
+        m_displayedMonth = QDate(date.year(), date.month(), 1);
+        refreshCells();
+        updateMonthYearLabel();
+    }
+
+    updateCellStates();
+
+    if (monthChanged)
+        emit displayedMonthChanged(m_displayedMonth);
+    emit dateSelected(m_selectedDate);
+}
+
+void MonthViewWidget::onCellClicked(QDate date)
+{
+    selectDate(date);
+}
