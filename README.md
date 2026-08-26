@@ -4,7 +4,7 @@ A lightweight Qt6 desktop client for a single Google Calendar account: sign in, 
 
 Why it exists: I was trying to decrease RAM usage on my somewhat old PC, but every calendar app I tried was using ~150-300 MB and had so many functions I never used. So I figured: why not build it myself?
 
-Currently, with four active calendars, Calendae uses ~35 MB of RAM on my machine.
+Currently, with four active calendars, Calendae uses ~35 MB of RAM (PSS) on my machine, or ~60 MB (RSS).
 
 ## Requirements
 

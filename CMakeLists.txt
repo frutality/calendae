@@ -125,6 +125,8 @@ qt_add_executable(calendae
     src/app/mainwindow.cpp
     src/app/mainwindow.h
     src/app/mainwindow.ui
+    src/app/processmemory.h
+    src/app/processmemory.cpp
 )
 
 qt_add_translations(

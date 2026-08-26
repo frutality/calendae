@@ -19,6 +19,7 @@ class CalendarSidebarWidget;
 class GoogleCalendarApi;
 class MonthViewWidget;
 class MonthEventsController;
+class QLabel;
 
 class MainWindow : public QMainWindow
 {
@@ -41,6 +42,7 @@ private:
     MonthViewWidget *m_monthView;
     MonthEventsController *m_eventsController;
     QList<Calendar> m_calendars; // most recent calendarListFetched result
+    QLabel *m_memoryUsageLabel;
     quint64 m_nextEventCreateRequestId = 1;
     quint64 m_nextEventUpdateRequestId = 1;
     quint64 m_nextEventDeleteRequestId = 1;

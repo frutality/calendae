@@ -7,8 +7,11 @@
 #include "calendar/googlecalendarapi.h"
 #include "calendar/montheventscontroller.h"
 #include "calendar/monthviewwidget.h"
+#include "processmemory.h"
 
+#include <QLabel>
 #include <QMessageBox>
+#include <QTimer>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -16,6 +19,16 @@ MainWindow::MainWindow(QWidget *parent)
     , m_authManager(new AuthManager(this))
 {
     ui->setupUi(this);
+
+    m_memoryUsageLabel = new QLabel(this);
+    m_memoryUsageLabel->setContentsMargins(0, 0, 8, 0);
+    menuBar()->setCornerWidget(m_memoryUsageLabel, Qt::TopRightCorner);
+    auto *memoryUsageTimer = new QTimer(this);
+    connect(memoryUsageTimer, &QTimer::timeout, this, [this] {
+        m_memoryUsageLabel->setText(formatMemorySize(currentProcessResidentMemoryBytes()));
+    });
+    memoryUsageTimer->start(2000);
+    m_memoryUsageLabel->setText(formatMemorySize(currentProcessResidentMemoryBytes()));
 
     m_calendarSidebar = new CalendarSidebarWidget(this);
     ui->sidebarHost->layout()->addWidget(m_calendarSidebar);
