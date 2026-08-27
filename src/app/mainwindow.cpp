@@ -28,6 +28,20 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
 
+    setupMemoryIndicator();
+    createWidgets();
+    connectViewSwitching();
+    connectAuth();
+    connectCalendarData();
+    connectEventEditing();
+
+    restoreWindowState();
+    updateUiForState(m_authManager->state());
+    m_authManager->restoreSession();
+}
+
+void MainWindow::setupMemoryIndicator()
+{
     m_memoryUsageLabel = new QLabel(this);
     m_memoryUsageLabel->setContentsMargins(0, 0, 8, 0);
     menuBar()->setCornerWidget(m_memoryUsageLabel, Qt::TopRightCorner);
@@ -37,7 +51,10 @@ MainWindow::MainWindow(QWidget *parent)
     });
     memoryUsageTimer->start(2000);
     m_memoryUsageLabel->setText(formatMemorySize(currentProcessResidentMemoryBytes()));
+}
 
+void MainWindow::createWidgets()
+{
     m_calendarSidebar = new CalendarSidebarWidget(this);
     ui->sidebarHost->layout()->addWidget(m_calendarSidebar);
 
@@ -62,7 +79,10 @@ MainWindow::MainWindow(QWidget *parent)
     ui->mainSplitter->setSizes({240, 560});
     ui->mainSplitter->setChildrenCollapsible(false);
     ui->sidebarHost->setMinimumWidth(140);
+}
 
+void MainWindow::connectViewSwitching()
+{
     connect(ui->monthViewButton, &QPushButton::clicked, this, [this] {
         ensureControllerPopulated(m_monthEventsController, m_monthControllerPopulated);
         m_viewStack->setCurrentWidget(m_monthView);
@@ -75,7 +95,10 @@ MainWindow::MainWindow(QWidget *parent)
         ensureControllerPopulated(m_dayEventsController, m_dayControllerPopulated);
         m_viewStack->setCurrentWidget(m_dayView);
     });
+}
 
+void MainWindow::connectAuth()
+{
     connect(ui->signInButton, &QPushButton::clicked, this, [this] { m_authManager->signIn(this); });
     connect(ui->actionSignOut, &QAction::triggered, m_authManager, &AuthManager::signOut);
 
@@ -94,7 +117,10 @@ MainWindow::MainWindow(QWidget *parent)
         m_weekControllerPopulated = false;
         m_dayControllerPopulated = false;
     });
+}
 
+void MainWindow::connectCalendarData()
+{
     connect(m_calendarApi, &GoogleCalendarApi::calendarListFetched, this, [this](const QList<Calendar> &calendars) {
         if (m_authManager->state() != AuthManager::AuthState::SignedIn)
             return; // a late reply arrived after sign-out
@@ -136,7 +162,10 @@ MainWindow::MainWindow(QWidget *parent)
                     controller->setCalendarEnabled(calendarId, revertToSelected);
                 statusBar()->showMessage(message, 8000);
             });
+}
 
+void MainWindow::connectEventEditing()
+{
     connect(m_monthView, &MonthViewWidget::newEventRequested, this, [this](const QDate &date) { openNewEventDialog(date); });
     connect(m_monthView, &MonthViewWidget::eventEditRequested, this, &MainWindow::openEditEventDialog);
     for (TimeGridViewWidget *view : {m_weekView, m_dayView}) {
@@ -146,10 +175,6 @@ MainWindow::MainWindow(QWidget *parent)
         });
         connect(view, &TimeGridViewWidget::eventEditRequested, this, &MainWindow::openEditEventDialog);
     }
-
-    restoreWindowState();
-    updateUiForState(m_authManager->state());
-    m_authManager->restoreSession();
 }
 
 MainWindow::~MainWindow()

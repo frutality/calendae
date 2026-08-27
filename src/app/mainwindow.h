@@ -41,6 +41,16 @@ protected:
     void closeEvent(QCloseEvent *event) override;
 
 private:
+    // One-time construction steps, split out of the constructor purely for
+    // readability. createWidgets() must run before the connect* methods —
+    // it creates m_calendarApi and the events controllers they wire up.
+    void setupMemoryIndicator();
+    void createWidgets();
+    void connectViewSwitching();
+    void connectAuth();
+    void connectCalendarData();
+    void connectEventEditing();
+
     void updateUiForState(AuthManager::AuthState state);
     void openNewEventDialog(const QDate &date, const std::optional<QTime> &initialTime = std::nullopt);
     void openEditEventDialog(const QString &calendarId, const QString &eventId);
