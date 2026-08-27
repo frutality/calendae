@@ -174,6 +174,37 @@ void MainWindow::saveWindowState()
     // touching that global property.
     QSettings settings(QStringLiteral("calendae"), QStringLiteral("calendae"));
 
+    // Only touch a key when its value actually differs from what's already
+    // stored. QSettings rewrites the whole file on sync whenever any key was
+    // set (even to its existing value) or removed, so an unconditional
+    // setValue()/remove() sweep here rewrote calendae.conf on every quit,
+    // even when nothing about the window had changed. put() compares first
+    // via a type-matched read (INI round-trips ints/bools as strings, so a
+    // raw QVariant compare would spuriously differ) and treats a missing key
+    // as a change so first-run still writes.
+    const auto put = [&settings](const QString &key, const QVariant &value) {
+        bool differs = !settings.contains(key);
+        if (!differs) {
+            const QVariant stored = settings.value(key);
+            switch (value.typeId()) {
+            case QMetaType::Bool:
+                differs = stored.toBool() != value.toBool();
+                break;
+            case QMetaType::Int:
+                differs = stored.toInt() != value.toInt();
+                break;
+            case QMetaType::QPoint:
+                differs = stored.toPoint() != value.toPoint();
+                break;
+            default:
+                differs = stored.toString() != value.toString();
+                break;
+            }
+        }
+        if (differs)
+            settings.setValue(key, value);
+    };
+
     // Explicit human-readable fields instead of the saveGeometry()/
     // restoreGeometry() QByteArray blob: that API packs screen index,
     // geometry, and window-state flags into an opaque binary format (shown
@@ -183,12 +214,13 @@ void MainWindow::saveWindowState()
     // it were the restore size" problem saveGeometry() handles internally,
     // solved explicitly here instead.
     const QRect normalGeom = normalGeometry();
-    settings.setValue(QStringLiteral("windowMaximized"), isMaximized());
-    settings.setValue(QStringLiteral("windowX"), normalGeom.x());
-    settings.setValue(QStringLiteral("windowY"), normalGeom.y());
-    settings.setValue(QStringLiteral("windowWidth"), normalGeom.width());
-    settings.setValue(QStringLiteral("windowHeight"), normalGeom.height());
-    settings.remove(QStringLiteral("windowGeometry")); // stale key from the old opaque-blob format, if present
+    put(QStringLiteral("windowMaximized"), isMaximized());
+    put(QStringLiteral("windowX"), normalGeom.x());
+    put(QStringLiteral("windowY"), normalGeom.y());
+    put(QStringLiteral("windowWidth"), normalGeom.width());
+    put(QStringLiteral("windowHeight"), normalGeom.height());
+    if (settings.contains(QStringLiteral("windowGeometry")))
+        settings.remove(QStringLiteral("windowGeometry")); // stale key from the old opaque-blob format
 
     QString lastView = QStringLiteral("month");
     QPoint scrollPosition = m_monthView->scrollPosition();
@@ -199,8 +231,8 @@ void MainWindow::saveWindowState()
         lastView = QStringLiteral("day");
         scrollPosition = m_dayView->scrollPosition();
     }
-    settings.setValue(QStringLiteral("lastView"), lastView);
-    settings.setValue(QStringLiteral("lastViewScrollPosition"), scrollPosition);
+    put(QStringLiteral("lastView"), lastView);
+    put(QStringLiteral("lastViewScrollPosition"), scrollPosition);
 }
 
 void MainWindow::restoreWindowState()
