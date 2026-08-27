@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QList>
 #include <QMainWindow>
+#include <QPoint>
 #include <optional>
 
 QT_BEGIN_NAMESPACE
@@ -24,6 +25,7 @@ class MonthEventsController;
 class TimeGridViewWidget;
 class TimeGridEventsController;
 class EventsController;
+class QCloseEvent;
 class QLabel;
 class QStackedWidget;
 
@@ -35,6 +37,9 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
 
+protected:
+    void closeEvent(QCloseEvent *event) override;
+
 private:
     void updateUiForState(AuthManager::AuthState state);
     void openNewEventDialog(const QDate &date, const std::optional<QTime> &initialTime = std::nullopt);
@@ -42,10 +47,10 @@ private:
     std::optional<Calendar> findCalendar(const QString &calendarId) const;
     std::optional<Event> findCachedEventAcrossViews(const QString &calendarId, const QString &eventId) const;
 
-    // Week/day populate lazily, on first switch to that view: startup only
-    // eagerly fetches for month (the default visible view), so an account
-    // that never opens week/day doesn't pay for their events.list calls.
-    // No-op if calendars haven't loaded yet or this controller already has.
+    // Whichever view (month/week/day) is on screen when the calendar list
+    // loads populates eagerly; the other two populate lazily, on first
+    // switch to them. No-op if calendars haven't loaded yet or this
+    // controller already has.
     void ensureControllerPopulated(EventsController *controller, bool &populated);
 
     // Keeps m_calendars' cached .selected flags in sync with sidebar
@@ -54,6 +59,28 @@ private:
     // calendar's *current* enabled state, not whatever it was at the last
     // calendarListFetched.
     void updateCachedCalendarSelected(const QString &calendarId, bool selected);
+
+    // Persists/restores window geometry (position, size, maximized state —
+    // as explicit, human-readable QSettings fields rather than the opaque
+    // saveGeometry()/restoreGeometry() QByteArray blob) and which of
+    // month/week/day was last active.
+    void saveWindowState();
+    void restoreWindowState();
+
+    // Repeatedly reapplies scrollPosition to targetView (month or week/day)
+    // until its maxScrollPosition() stops changing across a few consecutive
+    // checks, then stops. A restored view's scrollable range keeps shifting
+    // as real event content loads in (month's day cells grow taller;
+    // week/day's all-day strip can too), and that can take a variable,
+    // unpredictable number of internal Qt layout passes to settle — see
+    // MonthDayCellWidget::resizeEvent()'s own comment about a single
+    // setEventsForCalendar() call needing multiple rebuild cycles to
+    // converge — so polling for actual stability beats guessing a fixed
+    // number of event-loop turns to wait. previousMax/stableCount/
+    // attemptsRemaining carry state across the recursive QTimer::singleShot
+    // chain; callers should start with previousMax = QPoint(-1, -1), stableCount = 0.
+    void reapplyScrollUntilSettled(QWidget *targetView, const QPoint &scrollPosition, const QPoint &previousMax, int stableCount,
+                                    int attemptsRemaining);
 
     Ui::MainWindow *ui;
     AuthManager *m_authManager;
@@ -68,6 +95,7 @@ private:
     TimeGridEventsController *m_weekEventsController;
     TimeGridEventsController *m_dayEventsController;
     QList<EventsController *> m_eventsControllers; // all three, for uniform ops
+    bool m_monthControllerPopulated = false;
     bool m_weekControllerPopulated = false;
     bool m_dayControllerPopulated = false;
 

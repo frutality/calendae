@@ -125,6 +125,9 @@ void MonthEventsController::onEventsFetched(quint64 requestId, const QString &ca
     m_cachedEventsByCalendar.insert(calendarId, events);
     if (m_enabledCalendarIds.contains(calendarId))
         m_monthView->setEventsForCalendar(calendarId, EventGrouping::groupByDate(events, m_calendarsById));
+
+    if (m_activeRequestIds.isEmpty())
+        emit fetchCycleFinished();
 }
 
 void MonthEventsController::onEventsFetchFailed(quint64 requestId, const QString &calendarId, const QString &message)
@@ -134,4 +137,7 @@ void MonthEventsController::onEventsFetchFailed(quint64 requestId, const QString
 
     const QString calendarName = m_calendarsById.contains(calendarId) ? m_calendarsById.value(calendarId).summary : calendarId;
     emit eventFetchFailed(tr("Could not load events for \"%1\": %2").arg(calendarName, message));
+
+    if (m_activeRequestIds.isEmpty())
+        emit fetchCycleFinished();
 }

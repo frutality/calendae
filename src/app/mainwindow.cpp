@@ -12,8 +12,12 @@
 #include "calendar/timegridviewwidget.h"
 #include "processmemory.h"
 
+#include <QCloseEvent>
+#include <QGuiApplication>
 #include <QLabel>
 #include <QMessageBox>
+#include <QScreen>
+#include <QSettings>
 #include <QStackedWidget>
 #include <QTimer>
 
@@ -59,7 +63,10 @@ MainWindow::MainWindow(QWidget *parent)
     ui->mainSplitter->setChildrenCollapsible(false);
     ui->sidebarHost->setMinimumWidth(140);
 
-    connect(ui->monthViewButton, &QPushButton::clicked, this, [this] { m_viewStack->setCurrentWidget(m_monthView); });
+    connect(ui->monthViewButton, &QPushButton::clicked, this, [this] {
+        ensureControllerPopulated(m_monthEventsController, m_monthControllerPopulated);
+        m_viewStack->setCurrentWidget(m_monthView);
+    });
     connect(ui->weekViewButton, &QPushButton::clicked, this, [this] {
         ensureControllerPopulated(m_weekEventsController, m_weekControllerPopulated);
         m_viewStack->setCurrentWidget(m_weekView);
@@ -83,6 +90,7 @@ MainWindow::MainWindow(QWidget *parent)
         connect(m_authManager, &AuthManager::signedOut, controller, &EventsController::clear);
     connect(m_authManager, &AuthManager::signedOut, this, [this] {
         m_calendars.clear();
+        m_monthControllerPopulated = false;
         m_weekControllerPopulated = false;
         m_dayControllerPopulated = false;
     });
@@ -92,9 +100,19 @@ MainWindow::MainWindow(QWidget *parent)
             return; // a late reply arrived after sign-out
         m_calendars = calendars;
         m_calendarSidebar->setCalendars(calendars);
-        m_monthEventsController->setCalendars(calendars); // eager: month is the default visible view
-        m_weekControllerPopulated = false; // week/day populate lazily, on first switch to that view
+
+        // Only the view actually on screen populates eagerly (matters when
+        // startup restored straight into week/day); the other two populate
+        // lazily, on first switch to them.
+        m_monthControllerPopulated = false;
+        m_weekControllerPopulated = false;
         m_dayControllerPopulated = false;
+        if (m_viewStack->currentWidget() == m_weekView)
+            ensureControllerPopulated(m_weekEventsController, m_weekControllerPopulated);
+        else if (m_viewStack->currentWidget() == m_dayView)
+            ensureControllerPopulated(m_dayEventsController, m_dayControllerPopulated);
+        else
+            ensureControllerPopulated(m_monthEventsController, m_monthControllerPopulated);
     });
     connect(m_calendarApi, &GoogleCalendarApi::calendarListFetchFailed, this, [this](const QString &message) {
         statusBar()->showMessage(message, 8000);
@@ -129,6 +147,7 @@ MainWindow::MainWindow(QWidget *parent)
         connect(view, &TimeGridViewWidget::eventEditRequested, this, &MainWindow::openEditEventDialog);
     }
 
+    restoreWindowState();
     updateUiForState(m_authManager->state());
     m_authManager->restoreSession();
 }
@@ -136,6 +155,150 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow()
 {
     delete ui;
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    saveWindowState();
+    QMainWindow::closeEvent(event);
+}
+
+void MainWindow::saveWindowState()
+{
+    // Explicit organization/application args, deliberately not the
+    // QCoreApplication-wide org/app name (which stays unset): CredentialsProvider's
+    // oauth_client.json lookup goes through QStandardPaths::AppConfigLocation(),
+    // which resolves differently once an organization name is set globally —
+    // setting one broke that documented, stable config path. Passing the
+    // names directly here keeps this settings file's location fixed without
+    // touching that global property.
+    QSettings settings(QStringLiteral("calendae"), QStringLiteral("calendae"));
+
+    // Explicit human-readable fields instead of the saveGeometry()/
+    // restoreGeometry() QByteArray blob: that API packs screen index,
+    // geometry, and window-state flags into an opaque binary format (shown
+    // hex-escaped in the .ini file), which is unreadable and unfixable by
+    // hand. normalGeometry() is the size/position the window would have if
+    // it weren't maximized — the same "don't save the maximized size as if
+    // it were the restore size" problem saveGeometry() handles internally,
+    // solved explicitly here instead.
+    const QRect normalGeom = normalGeometry();
+    settings.setValue(QStringLiteral("windowMaximized"), isMaximized());
+    settings.setValue(QStringLiteral("windowX"), normalGeom.x());
+    settings.setValue(QStringLiteral("windowY"), normalGeom.y());
+    settings.setValue(QStringLiteral("windowWidth"), normalGeom.width());
+    settings.setValue(QStringLiteral("windowHeight"), normalGeom.height());
+    settings.remove(QStringLiteral("windowGeometry")); // stale key from the old opaque-blob format, if present
+
+    QString lastView = QStringLiteral("month");
+    QPoint scrollPosition = m_monthView->scrollPosition();
+    if (m_viewStack->currentWidget() == m_weekView) {
+        lastView = QStringLiteral("week");
+        scrollPosition = m_weekView->scrollPosition();
+    } else if (m_viewStack->currentWidget() == m_dayView) {
+        lastView = QStringLiteral("day");
+        scrollPosition = m_dayView->scrollPosition();
+    }
+    settings.setValue(QStringLiteral("lastView"), lastView);
+    settings.setValue(QStringLiteral("lastViewScrollPosition"), scrollPosition);
+}
+
+void MainWindow::restoreWindowState()
+{
+    const QSettings settings(QStringLiteral("calendae"), QStringLiteral("calendae"));
+
+    if (settings.contains(QStringLiteral("windowWidth"))) {
+        const int width = settings.value(QStringLiteral("windowWidth")).toInt();
+        const int height = settings.value(QStringLiteral("windowHeight")).toInt();
+        const QPoint topLeft(settings.value(QStringLiteral("windowX")).toInt(), settings.value(QStringLiteral("windowY")).toInt());
+
+        // Only trust the saved position if it's still on a currently
+        // connected screen — e.g. an external monitor that's since been
+        // unplugged could otherwise place the window somewhere unreachable.
+        // The size is safe to restore regardless (saveGeometry() handled
+        // this screen-availability case internally; doing it explicitly
+        // here is the price of the format being human-readable instead).
+        bool positionOnScreen = false;
+        for (const QScreen *screen : QGuiApplication::screens()) {
+            if (screen->geometry().contains(topLeft)) {
+                positionOnScreen = true;
+                break;
+            }
+        }
+
+        if (positionOnScreen)
+            setGeometry(topLeft.x(), topLeft.y(), width, height);
+        else
+            resize(width, height);
+    }
+    if (settings.value(QStringLiteral("windowMaximized"), false).toBool())
+        setWindowState(windowState() | Qt::WindowMaximized);
+
+    const QString lastView = settings.value(QStringLiteral("lastView"), QStringLiteral("month")).toString();
+
+    QWidget *targetView = m_monthView;
+    QPushButton *targetButton = ui->monthViewButton;
+    EventsController *targetController = m_monthEventsController;
+    if (lastView == QStringLiteral("week")) {
+        targetView = m_weekView;
+        targetButton = ui->weekViewButton;
+        targetController = m_weekEventsController;
+    } else if (lastView == QStringLiteral("day")) {
+        targetView = m_dayView;
+        targetButton = ui->dayViewButton;
+        targetController = m_dayEventsController;
+    }
+    m_viewStack->setCurrentWidget(targetView);
+    targetButton->setChecked(true);
+    // Deliberately doesn't call ensureControllerPopulated() here: sign-in
+    // hasn't happened yet at construction time (m_calendars is still
+    // empty), so it would no-op anyway. The calendarListFetched handler
+    // populates whichever view m_viewStack->currentWidget() is once data
+    // actually arrives.
+
+    // A scroll area's scrollbar range isn't known until this widget has
+    // actually been shown and laid out by the window system —
+    // restoreGeometry() above works immediately because it sets the
+    // window's own geometry directly, but setScrollPosition() would get
+    // silently clamped to 0 if applied before that, so the first poll
+    // attempt is deferred via QTimer::singleShot(0, ...) (post-show(), the
+    // standard Qt idiom for this).
+    const QPoint scrollPosition = settings.value(QStringLiteral("lastViewScrollPosition"), QPoint(0, 0)).toPoint();
+    QTimer::singleShot(0, this, [this, targetView, scrollPosition] {
+        reapplyScrollUntilSettled(targetView, scrollPosition, QPoint(-1, -1), 0, 40);
+    });
+
+    // Kicked off again once real data has actually arrived: sign-in and the
+    // initial events.list fetch are both async network round-trips that
+    // finish well after the polling above may have already given up
+    // watching an empty/placeholder-sized grid, so this gives the polling
+    // loop a fresh budget starting from when content is known to be
+    // (im)minently real.
+    connect(targetController, &EventsController::fetchCycleFinished, this,
+            [this, targetView, scrollPosition] { reapplyScrollUntilSettled(targetView, scrollPosition, QPoint(-1, -1), 0, 40); },
+            Qt::SingleShotConnection);
+}
+
+void MainWindow::reapplyScrollUntilSettled(QWidget *targetView, const QPoint &scrollPosition, const QPoint &previousMax, int stableCount,
+                                            int attemptsRemaining)
+{
+    QPoint currentMax;
+    if (auto *monthView = qobject_cast<MonthViewWidget *>(targetView)) {
+        monthView->setScrollPosition(scrollPosition);
+        currentMax = monthView->maxScrollPosition();
+    } else if (auto *timeGridView = qobject_cast<TimeGridViewWidget *>(targetView)) {
+        timeGridView->setScrollPosition(scrollPosition);
+        currentMax = timeGridView->maxScrollPosition();
+    }
+
+    constexpr int kRequiredStableChecks = 3;
+    const int newStableCount = (currentMax == previousMax) ? stableCount + 1 : 0;
+    if (newStableCount >= kRequiredStableChecks || attemptsRemaining <= 1)
+        return; // converged (or gave up as a safety net against a pathological case)
+
+    QTimer::singleShot(50, this, [this, targetView, scrollPosition, currentMax, newStableCount, attemptsRemaining] {
+        reapplyScrollUntilSettled(targetView, scrollPosition, currentMax, newStableCount, attemptsRemaining - 1);
+    });
 }
 
 void MainWindow::updateUiForState(AuthManager::AuthState state)

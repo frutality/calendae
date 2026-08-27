@@ -6,6 +6,7 @@
 #include <QDate>
 #include <QHash>
 #include <QList>
+#include <QPoint>
 #include <QVector>
 #include <QWidget>
 
@@ -29,6 +30,21 @@ public:
 
     QDate selectedDate() const { return m_selectedDate; }
     QDate displayedMonth() const { return m_displayedMonth; } // always first-of-month
+
+    // Scroll position of the days grid (x = horizontal, y = vertical), in
+    // pixels — exposed so MainWindow can persist/restore it across restarts
+    // alongside window geometry and the last-active view. Both axes matter
+    // here (unlike TimeGridViewWidget's grid, which never scrolls
+    // horizontally): a narrow window can make the 7-column grid wider than
+    // the viewport.
+    QPoint scrollPosition() const;
+    void setScrollPosition(const QPoint &value);
+
+    // Current maximum scrollable value on each axis — changes as day cells
+    // grow with real event content (see MonthDayCellWidget::setEvents()),
+    // so MainWindow polls this to detect when the grid has actually
+    // finished settling before treating a restored scroll position as final.
+    QPoint maxScrollPosition() const;
 
 public slots:
     void goToPreviousMonth();

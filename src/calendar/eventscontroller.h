@@ -45,6 +45,18 @@ public:
 
 signals:
     void eventFetchFailed(const QString &message); // already staleness-filtered
+
+    // Emitted once every in-flight request of the current fetch cycle has
+    // completed (success or failure) — i.e. the view's content has settled
+    // to its final, real-data state. Used by MainWindow to know when it's
+    // safe to (re-)apply a saved scroll position: right after startup, a
+    // view's scrollable content can still be its empty/placeholder size
+    // (month view's day cells only grow once real events load — unlike
+    // week/day's fixed-height time grid, though even there the all-day
+    // strip growing can shrink the scroll viewport slightly), so applying a
+    // saved scroll position immediately can get silently clamped to
+    // whatever range existed at that moment.
+    void fetchCycleFinished();
 };
 
 #endif // EVENTSCONTROLLER_H

@@ -7,6 +7,7 @@
 #include <QFont>
 #include <QLabel>
 #include <QLocale>
+#include <QScrollBar>
 #include <algorithm>
 
 MonthViewWidget::MonthViewWidget(QWidget *parent)
@@ -189,4 +190,20 @@ void MonthViewWidget::selectDate(const QDate &date)
 void MonthViewWidget::onCellClicked(QDate date)
 {
     selectDate(date);
+}
+
+QPoint MonthViewWidget::scrollPosition() const
+{
+    return QPoint(ui->daysGridScrollArea->horizontalScrollBar()->value(), ui->daysGridScrollArea->verticalScrollBar()->value());
+}
+
+void MonthViewWidget::setScrollPosition(const QPoint &value)
+{
+    ui->daysGridScrollArea->horizontalScrollBar()->setValue(value.x());
+    ui->daysGridScrollArea->verticalScrollBar()->setValue(value.y());
+}
+
+QPoint MonthViewWidget::maxScrollPosition() const
+{
+    return QPoint(ui->daysGridScrollArea->horizontalScrollBar()->maximum(), ui->daysGridScrollArea->verticalScrollBar()->maximum());
 }

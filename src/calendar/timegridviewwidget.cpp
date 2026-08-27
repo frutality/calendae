@@ -9,6 +9,7 @@
 #include <QHBoxLayout>
 #include <QLocale>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QSpacerItem>
 #include <QTimer>
 #include <QToolButton>
@@ -53,10 +54,10 @@ TimeGridViewWidget::TimeGridViewWidget(int dayCount, QWidget *parent)
     ui->verticalLayout->addLayout(allDayLayout);
 
     // Scrollable half-hour grid: hour gutter + one day column per column.
-    auto *scrollArea = new QScrollArea(this);
-    scrollArea->setWidgetResizable(true);
-    scrollArea->setFrameShape(QFrame::NoFrame);
-    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_scrollArea = new QScrollArea(this);
+    m_scrollArea->setWidgetResizable(true);
+    m_scrollArea->setFrameShape(QFrame::NoFrame);
+    m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
     auto *gridHost = new QWidget;
     auto *gridLayout = new QHBoxLayout(gridHost);
@@ -72,8 +73,8 @@ TimeGridViewWidget::TimeGridViewWidget(int dayCount, QWidget *parent)
         gridLayout->addWidget(column, 1);
         m_dayColumns.append(column);
     }
-    scrollArea->setWidget(gridHost);
-    ui->verticalLayout->addWidget(scrollArea, 1);
+    m_scrollArea->setWidget(gridHost);
+    ui->verticalLayout->addWidget(m_scrollArea, 1);
 
     connect(ui->prevRangeButton, &QToolButton::clicked, this, &TimeGridViewWidget::goToPrevious);
     connect(ui->nextRangeButton, &QToolButton::clicked, this, &TimeGridViewWidget::goToNext);
@@ -103,6 +104,22 @@ TimeGridViewWidget::~TimeGridViewWidget()
 void TimeGridViewWidget::onColumnClicked(QDate date)
 {
     selectDate(date);
+}
+
+QPoint TimeGridViewWidget::scrollPosition() const
+{
+    return QPoint(m_scrollArea->horizontalScrollBar()->value(), m_scrollArea->verticalScrollBar()->value());
+}
+
+void TimeGridViewWidget::setScrollPosition(const QPoint &value)
+{
+    m_scrollArea->horizontalScrollBar()->setValue(value.x());
+    m_scrollArea->verticalScrollBar()->setValue(value.y());
+}
+
+QPoint TimeGridViewWidget::maxScrollPosition() const
+{
+    return QPoint(m_scrollArea->horizontalScrollBar()->maximum(), m_scrollArea->verticalScrollBar()->maximum());
 }
 
 void TimeGridViewWidget::refreshColumns()

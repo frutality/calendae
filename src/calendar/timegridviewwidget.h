@@ -7,6 +7,7 @@
 #include <QDateTime>
 #include <QHash>
 #include <QList>
+#include <QPoint>
 #include <QVector>
 #include <QWidget>
 
@@ -14,6 +15,7 @@ QT_BEGIN_NAMESPACE
 namespace Ui {
 class TimeGridViewWidget;
 }
+class QScrollArea;
 class QToolButton;
 class QTimer;
 QT_END_NAMESPACE
@@ -37,6 +39,22 @@ public:
     int dayCount() const { return m_dayCount; }
     QDate selectedDate() const { return m_selectedDate; }
     QDate rangeStart() const { return m_rangeStart; } // Monday of the week (week mode) or the day itself (day mode)
+
+    // Scroll position of the half-hour grid, in pixels — x (horizontal) is
+    // always 0 (this grid never scrolls horizontally, see
+    // Qt::ScrollBarAlwaysOff in the constructor), kept as a QPoint only for
+    // a uniform interface with MonthViewWidget's grid, which does scroll
+    // both ways. Exposed so MainWindow can persist/restore it across
+    // restarts alongside window geometry and the last-active view.
+    QPoint scrollPosition() const;
+    void setScrollPosition(const QPoint &value);
+
+    // Current maximum scrollable value on each axis — the vertical one can
+    // shift slightly as the all-day strip grows with real event content,
+    // shrinking the scroll viewport. MainWindow polls this to detect when
+    // the view has actually finished settling before treating a restored
+    // scroll position as final.
+    QPoint maxScrollPosition() const;
 
 public slots:
     void goToPrevious();
@@ -70,6 +88,7 @@ private:
     QVector<QToolButton *> m_headerButtons; // dayCount, one per column
     QVector<TimeGridAllDayCellWidget *> m_allDayCells; // dayCount
     QVector<TimeGridDayColumnWidget *> m_dayColumns; // dayCount
+    QScrollArea *m_scrollArea;
     QTimer *m_nowLineTimer;
 
     QHash<QString, QHash<QDate, QList<MonthDayEventItem>>> m_eventsByCalendar;
