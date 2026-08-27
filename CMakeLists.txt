@@ -98,9 +98,25 @@ add_library(tgc_calendar STATIC
     src/calendar/event.cpp
     src/calendar/eventtimerange.h
     src/calendar/eventtimerange.cpp
+    src/calendar/eventgrouping.h
+    src/calendar/eventgrouping.cpp
+    src/calendar/eventscontroller.h
     src/calendar/montheventitem.h
     src/calendar/montheventscontroller.h
     src/calendar/montheventscontroller.cpp
+    src/calendar/timegridrange.h
+    src/calendar/timegridrange.cpp
+    src/calendar/timegrideventscontroller.h
+    src/calendar/timegrideventscontroller.cpp
+    src/calendar/timegridviewwidget.h
+    src/calendar/timegridviewwidget.cpp
+    src/calendar/timegridviewwidget.ui
+    src/calendar/timegriddaycolumnwidget.h
+    src/calendar/timegriddaycolumnwidget.cpp
+    src/calendar/timegridalldaycellwidget.h
+    src/calendar/timegridalldaycellwidget.cpp
+    src/calendar/timegridhourgutterwidget.h
+    src/calendar/timegridhourgutterwidget.cpp
     src/calendar/neweventrequest.h
     src/calendar/eventdialog.h
     src/calendar/eventdialog.cpp

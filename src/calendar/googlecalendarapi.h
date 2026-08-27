@@ -47,12 +47,16 @@ public slots:
     // (always !selected, since this is a binary toggle).
     void setCalendarSelected(const QString &calendarId, bool selected);
 
-    // requestId is fully opaque to GoogleCalendarApi — it's just echoed
-    // back unchanged in eventsFetched/eventsFetchFailed (including across
-    // pagination pages of the same logical fetch), so callers can use it
-    // to discard stale replies. Follows nextPageToken until exhausted.
-    void fetchEvents(quint64 requestId, const QString &calendarId,
-                      const QString &timeMinRfc3339, const QString &timeMaxRfc3339);
+    // Assigns and returns a fresh requestId (echoed back unchanged in
+    // eventsFetched/eventsFetchFailed, including across pagination pages of
+    // the same logical fetch), so callers can use it to discard stale
+    // replies. Follows nextPageToken until exhausted. The id is generated
+    // here — not supplied by the caller — because this one GoogleCalendarApi
+    // instance is shared by multiple independent controllers (month/week/day
+    // views); caller-local counters would collide (two controllers both
+    // handing out "1") and cause one controller's reply to be mistakenly
+    // consumed by another's identically-numbered in-flight request.
+    quint64 fetchEvents(const QString &calendarId, const QString &timeMinRfc3339, const QString &timeMaxRfc3339);
 
     // requestId is opaque, echoed back unchanged in eventCreated/eventCreateFailed.
     void createEvent(quint64 requestId, const NewEventRequest &request);
@@ -98,6 +102,7 @@ private:
 
     AuthManager *m_authManager;
     QNetworkAccessManager *m_network;
+    quint64 m_nextFetchRequestId = 1;
 };
 
 #endif // GOOGLECALENDARAPI_H

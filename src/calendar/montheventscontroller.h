@@ -3,11 +3,11 @@
 
 #include "calendar.h"
 #include "event.h"
+#include "eventscontroller.h"
 
 #include <QDate>
 #include <QHash>
 #include <QList>
-#include <QObject>
 #include <QSet>
 #include <QString>
 #include <optional>
@@ -24,7 +24,7 @@ struct MonthDayEventItem;
 // being deselected before it landed), and caches one month's worth of
 // per-calendar results so toggling a calendar's visibility doesn't
 // require a network round-trip.
-class MonthEventsController : public QObject
+class MonthEventsController : public EventsController
 {
     Q_OBJECT
 public:
@@ -32,37 +32,24 @@ public:
                                     MonthViewWidget *monthView, QObject *parent = nullptr);
 
 public slots:
-    // Full repopulate of the known calendar set (from GoogleCalendarApi's
-    // calendarListFetched); triggers a fresh fetch cycle for every
-    // calendar currently marked selected.
-    void setCalendars(const QList<Calendar> &calendars);
+    void setCalendars(const QList<Calendar> &calendars) override;
+    void setCalendarEnabled(const QString &calendarId, bool enabled) override;
+    void clear() override;
 
-    // Optimistic toggle: caller has already updated its own UI state.
-    void setCalendarEnabled(const QString &calendarId, bool enabled);
-
-    // Sign-out: drop all state, blank the month view.
-    void clear();
-
-    // Forces a single calendar's cached events for the current month to be
-    // discarded and (if that calendar is currently enabled) re-fetched. For
-    // use after an out-of-band mutation (e.g. event creation) that the
+    // For use after an out-of-band mutation (e.g. event creation) that the
     // normal enable/disable/navigate flows don't cover. If the calendar is
     // currently disabled, only the cache is dropped — disabled calendars'
     // events are never shown, and a stale cache entry self-corrects on next
     // enable. No-op if no month is currently loaded or calendarId is unknown.
-    void refreshCalendar(const QString &calendarId);
+    void refreshCalendar(const QString &calendarId) override;
 
 public:
-    // Synchronous lookup into the current month's cached events (same data
-    // backing the visible grid) — used to prefill an edit dialog without a
-    // network round-trip. Returns std::nullopt if calendarId/eventId isn't
-    // in the cache (e.g. a stale pill click racing a calendar being
-    // disabled or the month changing) — callers must treat this
+    // Same data backing the visible grid — used to prefill an edit dialog
+    // without a network round-trip. Returns std::nullopt if calendarId/
+    // eventId isn't in the cache (e.g. a stale pill click racing a calendar
+    // being disabled or the month changing) — callers must treat this
     // defensively.
-    std::optional<Event> findCachedEvent(const QString &calendarId, const QString &eventId) const;
-
-signals:
-    void eventFetchFailed(const QString &message); // already staleness-filtered
+    std::optional<Event> findCachedEvent(const QString &calendarId, const QString &eventId) const override;
 
 private slots:
     void onDisplayedMonthChanged(const QDate &firstOfMonth);
@@ -72,7 +59,6 @@ private slots:
 private:
     void startFetchCycleForCurrentMonth();
     void fetchForCalendar(const QString &calendarId);
-    QHash<QDate, QList<MonthDayEventItem>> groupByDate(const QList<Event> &events) const;
 
     AuthManager *m_authManager;
     GoogleCalendarApi *m_calendarApi;
@@ -91,7 +77,6 @@ private:
     // rare case was judged not worth the added complexity.
     QHash<QString, QList<Event>> m_cachedEventsByCalendar;
 
-    quint64 m_nextRequestId = 1;
     QSet<quint64> m_activeRequestIds;
 };
 

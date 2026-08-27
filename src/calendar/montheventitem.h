@@ -17,7 +17,8 @@ struct MonthDayEventItem
     QColor color;
     bool allDay = false;
     QString timeLabel; // e.g. "9:00 AM"; empty when allDay
-    QDateTime startInstant; // invalid for all-day; used only for cross-calendar sort order
+    QDateTime startInstant; // invalid for all-day; used for cross-calendar sort order and time-grid positioning
+    QDateTime endInstant; // invalid for all-day; used only for time-grid positioning/duration
 };
 
 #endif // MONTHEVENTITEM_H

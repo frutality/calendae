@@ -10,6 +10,8 @@ set(TGC_TEST_NAMES
     test_monthgrid
     test_event
     test_eventtimerange
+    test_timegridrange
+    test_eventgrouping
 )
 
 foreach(test_name IN LISTS TGC_TEST_NAMES)

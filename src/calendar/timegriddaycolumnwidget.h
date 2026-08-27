@@ -1,0 +1,65 @@
+#ifndef TIMEGRIDDAYCOLUMNWIDGET_H
+#define TIMEGRIDDAYCOLUMNWIDGET_H
+
+#include "montheventitem.h"
+
+#include <QDate>
+#include <QDateTime>
+#include <QList>
+#include <QWidget>
+
+// One day's column inside the time-grid (week/day) view's scrollable body:
+// a fixed-height, half-hour-ruled track that positions timed events by
+// clock time, with overlapping events split side-by-side (interval-
+// partitioning, same idea a real calendar app uses). All-day events are
+// NOT shown here — those live in TimeGridAllDayCellWidget, pinned above
+// the scroll area. Built entirely in code (no .ui), same as
+// MonthDayCellWidget.
+class TimeGridDayColumnWidget : public QWidget
+{
+    Q_OBJECT
+public:
+    static constexpr int kSlotHeight = 30; // px per half-hour row
+    static constexpr int kSlotsPerDay = 48;
+    static constexpr int kDayHeight = kSlotHeight * kSlotsPerDay;
+    static constexpr int kMinEventHeight = 18; // px; keeps very short events clickable
+
+    explicit TimeGridDayColumnWidget(QWidget *parent = nullptr);
+
+    void setDate(const QDate &date);
+    QDate date() const { return m_date; }
+
+    void setIsToday(bool isToday);
+
+public slots:
+    // events may include allDay items (from a merged per-date list) — those
+    // are silently ignored here; only timed (allDay == false) items with
+    // valid startInstant/endInstant are laid out.
+    void setEvents(const QList<MonthDayEventItem> &events);
+
+    // Repaints the current-time indicator line at its live position.
+    // Cheap no-op when date() isn't today.
+    void refreshNowLine();
+
+signals:
+    void clicked(QDate date);
+    void slotDoubleClicked(const QDateTime &startDateTime);
+    void eventEditRequested(const QString &calendarId, const QString &eventId);
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
+
+private:
+    void relayoutEvents();
+    QDateTime slotStartForY(int y) const;
+
+    QDate m_date;
+    bool m_isToday = false;
+    QList<MonthDayEventItem> m_events;
+    QList<QWidget *> m_eventWidgets; // EventPillLabel*, absolutely positioned
+};
+
+#endif // TIMEGRIDDAYCOLUMNWIDGET_H

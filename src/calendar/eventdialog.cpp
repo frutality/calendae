@@ -7,7 +7,8 @@
 #include <QPushButton>
 #include <QTimeZone>
 
-EventDialog::EventDialog(const QList<Calendar> &writableCalendars, const QDate &initialDate, QWidget *parent)
+EventDialog::EventDialog(const QList<Calendar> &writableCalendars, const QDate &initialDate,
+                          const std::optional<QTime> &initialTime, QWidget *parent)
     : QDialog(parent)
     , ui(new Ui::EventDialog)
 {
@@ -29,7 +30,7 @@ EventDialog::EventDialog(const QList<Calendar> &writableCalendars, const QDate &
         ui->statusLabel->setText(tr("You don't have write access to any calendar."));
 
     ui->dateEdit->setDate(initialDate);
-    ui->startTimeEdit->setTime(defaultStartTime());
+    ui->startTimeEdit->setTime(initialTime.value_or(defaultStartTime()));
     ui->endTimeEdit->setTime(ui->startTimeEdit->time().addSecs(3600));
     ui->allDayCheck->setChecked(false);
 

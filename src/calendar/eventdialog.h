@@ -9,6 +9,7 @@
 #include <QDialog>
 #include <QList>
 #include <QTime>
+#include <optional>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -29,8 +30,12 @@ public:
     // writableCalendars is expected non-empty (the caller pre-filters to
     // owner/writer/writerWithoutPrivateAccess); an empty list is handled
     // defensively (OK stays disabled, explanatory text shown) rather than
-    // asserted against.
-    explicit EventDialog(const QList<Calendar> &writableCalendars, const QDate &initialDate, QWidget *parent = nullptr);
+    // asserted against. initialTime, when supplied (e.g. a week/day view
+    // half-hour slot double-click), pre-fills a non-all-day start time
+    // instead of defaultStartTime(), with the same "+1 hour" default
+    // duration; the end time is still user-editable either way.
+    explicit EventDialog(const QList<Calendar> &writableCalendars, const QDate &initialDate,
+                          const std::optional<QTime> &initialTime = std::nullopt, QWidget *parent = nullptr);
 
     // Edit mode: pre-fills every field from event. calendar is shown as a
     // fixed, disabled single-item field — Google models moving an event

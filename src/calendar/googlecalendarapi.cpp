@@ -205,15 +205,17 @@ void GoogleCalendarApi::setCalendarSelected(const QString &calendarId, bool sele
     });
 }
 
-void GoogleCalendarApi::fetchEvents(quint64 requestId, const QString &calendarId,
-                                     const QString &timeMinRfc3339, const QString &timeMaxRfc3339)
+quint64 GoogleCalendarApi::fetchEvents(const QString &calendarId, const QString &timeMinRfc3339, const QString &timeMaxRfc3339)
 {
+    const quint64 requestId = m_nextFetchRequestId++;
+
     if (m_authManager->state() != AuthManager::AuthState::SignedIn) {
         emit eventsFetchFailed(requestId, calendarId, tr("You are not signed in."));
-        return;
+        return requestId;
     }
 
     fetchEventsPage(requestId, calendarId, timeMinRfc3339, timeMaxRfc3339, QString(), {});
+    return requestId;
 }
 
 void GoogleCalendarApi::fetchEventsPage(quint64 requestId, const QString &calendarId,

@@ -1,29 +1,27 @@
-#include "montheventscontroller.h"
+#include "timegrideventscontroller.h"
 
 #include "auth/authmanager.h"
 #include "eventgrouping.h"
 #include "eventtimerange.h"
 #include "googlecalendarapi.h"
-#include "monthgrid.h"
-#include "montheventitem.h"
-#include "monthviewwidget.h"
+#include "timegridrange.h"
+#include "timegridviewwidget.h"
 
-#include <QLocale>
 #include <utility>
 
-MonthEventsController::MonthEventsController(AuthManager *authManager, GoogleCalendarApi *calendarApi,
-                                               MonthViewWidget *monthView, QObject *parent)
+TimeGridEventsController::TimeGridEventsController(AuthManager *authManager, GoogleCalendarApi *calendarApi,
+                                                     TimeGridViewWidget *view, QObject *parent)
     : EventsController(parent)
     , m_authManager(authManager)
     , m_calendarApi(calendarApi)
-    , m_monthView(monthView)
+    , m_view(view)
 {
-    connect(m_monthView, &MonthViewWidget::displayedMonthChanged, this, &MonthEventsController::onDisplayedMonthChanged);
-    connect(m_calendarApi, &GoogleCalendarApi::eventsFetched, this, &MonthEventsController::onEventsFetched);
-    connect(m_calendarApi, &GoogleCalendarApi::eventsFetchFailed, this, &MonthEventsController::onEventsFetchFailed);
+    connect(m_view, &TimeGridViewWidget::displayedRangeChanged, this, &TimeGridEventsController::onDisplayedRangeChanged);
+    connect(m_calendarApi, &GoogleCalendarApi::eventsFetched, this, &TimeGridEventsController::onEventsFetched);
+    connect(m_calendarApi, &GoogleCalendarApi::eventsFetchFailed, this, &TimeGridEventsController::onEventsFetchFailed);
 }
 
-void MonthEventsController::setCalendars(const QList<Calendar> &calendars)
+void TimeGridEventsController::setCalendars(const QList<Calendar> &calendars)
 {
     m_calendarsById.clear();
     for (const Calendar &calendar : calendars) {
@@ -32,10 +30,10 @@ void MonthEventsController::setCalendars(const QList<Calendar> &calendars)
             m_enabledCalendarIds.insert(calendar.id);
     }
 
-    startFetchCycleForCurrentMonth();
+    startFetchCycleForCurrentRange();
 }
 
-void MonthEventsController::setCalendarEnabled(const QString &calendarId, bool enabled)
+void TimeGridEventsController::setCalendarEnabled(const QString &calendarId, bool enabled)
 {
     if (!m_calendarsById.contains(calendarId))
         return;
@@ -43,38 +41,38 @@ void MonthEventsController::setCalendarEnabled(const QString &calendarId, bool e
     if (enabled) {
         m_enabledCalendarIds.insert(calendarId);
         if (m_cachedEventsByCalendar.contains(calendarId))
-            m_monthView->setEventsForCalendar(calendarId, EventGrouping::groupByDate(m_cachedEventsByCalendar.value(calendarId), m_calendarsById));
-        else if (m_cachedMonthKey.isValid())
+            m_view->setEventsForCalendar(calendarId, EventGrouping::groupByDate(m_cachedEventsByCalendar.value(calendarId), m_calendarsById));
+        else if (m_cachedRangeStart.isValid())
             fetchForCalendar(calendarId);
     } else {
         m_enabledCalendarIds.remove(calendarId);
-        m_monthView->clearEventsForCalendar(calendarId);
+        m_view->clearEventsForCalendar(calendarId);
     }
 }
 
-void MonthEventsController::clear()
+void TimeGridEventsController::clear()
 {
     m_calendarsById.clear();
     m_enabledCalendarIds.clear();
-    m_cachedMonthKey = QDate();
+    m_cachedRangeStart = QDate();
     m_cachedEventsByCalendar.clear();
     m_activeRequestIds.clear();
-    m_monthView->clearAllEvents();
+    m_view->clearAllEvents();
 }
 
-void MonthEventsController::refreshCalendar(const QString &calendarId)
+void TimeGridEventsController::refreshCalendar(const QString &calendarId)
 {
     if (!m_calendarsById.contains(calendarId))
         return;
-    if (!m_cachedMonthKey.isValid())
-        return; // no month loaded yet (e.g. not signed in)
+    if (!m_cachedRangeStart.isValid())
+        return; // no range loaded yet (e.g. not signed in)
 
     m_cachedEventsByCalendar.remove(calendarId);
     if (m_enabledCalendarIds.contains(calendarId))
         fetchForCalendar(calendarId); // new requestId, tracked in m_activeRequestIds like any other fetch
 }
 
-std::optional<Event> MonthEventsController::findCachedEvent(const QString &calendarId, const QString &eventId) const
+std::optional<Event> TimeGridEventsController::findCachedEvent(const QString &calendarId, const QString &eventId) const
 {
     const auto it = m_cachedEventsByCalendar.constFind(calendarId);
     if (it == m_cachedEventsByCalendar.constEnd())
@@ -86,48 +84,48 @@ std::optional<Event> MonthEventsController::findCachedEvent(const QString &calen
     return std::nullopt;
 }
 
-void MonthEventsController::onDisplayedMonthChanged(const QDate &firstOfMonth)
+void TimeGridEventsController::onDisplayedRangeChanged(const QDate &rangeStart)
 {
-    Q_UNUSED(firstOfMonth);
-    startFetchCycleForCurrentMonth();
+    Q_UNUSED(rangeStart);
+    startFetchCycleForCurrentRange();
 }
 
-void MonthEventsController::startFetchCycleForCurrentMonth()
+void TimeGridEventsController::startFetchCycleForCurrentRange()
 {
     if (m_authManager->state() != AuthManager::AuthState::SignedIn)
         return;
     if (m_calendarsById.isEmpty())
         return;
 
-    m_cachedMonthKey = m_monthView->displayedMonth();
+    m_cachedRangeStart = m_view->rangeStart();
     m_cachedEventsByCalendar.clear();
     m_activeRequestIds.clear();
-    m_monthView->clearAllEvents();
+    m_view->clearAllEvents();
 
     for (const QString &calendarId : std::as_const(m_enabledCalendarIds))
         fetchForCalendar(calendarId);
 }
 
-void MonthEventsController::fetchForCalendar(const QString &calendarId)
+void TimeGridEventsController::fetchForCalendar(const QString &calendarId)
 {
-    const QList<QDate> dates = MonthGrid::datesForGrid(m_cachedMonthKey, QLocale::system().firstDayOfWeek());
+    const QList<QDate> dates = TimeGridRange::datesForRange(m_cachedRangeStart, m_view->dayCount());
     const EventTimeRange::Range range = EventTimeRange::forDates(dates);
 
     const quint64 requestId = m_calendarApi->fetchEvents(calendarId, range.timeMin, range.timeMax);
     m_activeRequestIds.insert(requestId);
 }
 
-void MonthEventsController::onEventsFetched(quint64 requestId, const QString &calendarId, const QList<Event> &events)
+void TimeGridEventsController::onEventsFetched(quint64 requestId, const QString &calendarId, const QList<Event> &events)
 {
     if (!m_activeRequestIds.remove(requestId))
         return; // stale reply — discard
 
     m_cachedEventsByCalendar.insert(calendarId, events);
     if (m_enabledCalendarIds.contains(calendarId))
-        m_monthView->setEventsForCalendar(calendarId, EventGrouping::groupByDate(events, m_calendarsById));
+        m_view->setEventsForCalendar(calendarId, EventGrouping::groupByDate(events, m_calendarsById));
 }
 
-void MonthEventsController::onEventsFetchFailed(quint64 requestId, const QString &calendarId, const QString &message)
+void TimeGridEventsController::onEventsFetchFailed(quint64 requestId, const QString &calendarId, const QString &message)
 {
     if (!m_activeRequestIds.remove(requestId))
         return; // stale reply — discard
