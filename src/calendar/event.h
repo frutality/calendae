@@ -7,6 +7,16 @@
 #include <QString>
 #include <optional>
 
+// One entry of an event's reminders.overrides array. method is kept raw
+// ("popup", "email", "sms", …) — only "popup" drives this client's desktop
+// notifications, but non-popup entries are preserved verbatim so editing an
+// event doesn't silently drop reminders this app can't display.
+struct EventReminder
+{
+    QString method;
+    int minutes = 0; // lead time before the event start
+};
+
 // One concrete occurrence of an event (recurring events are already
 // expanded into individual instances by events.list's singleEvents=true,
 // so every Event here is a one-off, never a recurring series).
@@ -22,6 +32,13 @@ struct Event
     QDate endDate; // exclusive, per Google Calendar semantics
     QDateTime startDateTime; // valid only if !allDay
     QDateTime endDateTime; // valid only if !allDay
+
+    // reminders.useDefault: true (or the field is absent) means the event
+    // inherits its calendar's default reminders — which this client
+    // deliberately does NOT act on. Only reminderOverrides with
+    // method == "popup" raise a desktop notification.
+    bool remindersUseDefault = true;
+    QList<EventReminder> reminderOverrides; // reminders.overrides, verbatim
 
     // Parses one page of an events.list JSON response body. calendarId is
     // stamped onto every parsed Event (it isn't part of the per-item JSON).

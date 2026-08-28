@@ -1,5 +1,6 @@
 #include "googlecalendarapi.h"
 
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
@@ -33,6 +34,37 @@ QString calendarEventEntryUrl(const QString &calendarId, const QString &eventId)
 // (black-holed by a firewall/proxy, hung process) leaves a request pending
 // forever with no error ever surfaced to the user.
 constexpr int kNetworkTimeoutMs = 20000;
+
+// Serializes NewEventRequest's reminder fields into the shared request body,
+// identically for create (POST) and update (PATCH): a Unchanged mode leaves
+// the body alone (Google keeps the calendar default / existing reminders),
+// otherwise "reminders" is written with useDefault:false and an explicit
+// overrides list — preserved non-popup entries plus, for Popup mode, the
+// one popup entry the dialog manages.
+void insertRemindersIfSet(QJsonObject &obj, const NewEventRequest &request)
+{
+    if (request.reminderMode == NewEventRequest::ReminderMode::Unchanged)
+        return;
+
+    QJsonArray overrides;
+    for (const EventReminder &reminder : request.preservedReminderOverrides) {
+        overrides.append(QJsonObject{
+            {QStringLiteral("method"), reminder.method},
+            {QStringLiteral("minutes"), reminder.minutes},
+        });
+    }
+    if (request.reminderMode == NewEventRequest::ReminderMode::Popup) {
+        overrides.append(QJsonObject{
+            {QStringLiteral("method"), QStringLiteral("popup")},
+            {QStringLiteral("minutes"), request.popupReminderMinutes},
+        });
+    }
+
+    obj.insert(QStringLiteral("reminders"), QJsonObject{
+        {QStringLiteral("useDefault"), false},
+        {QStringLiteral("overrides"), overrides},
+    });
+}
 } // namespace
 
 GoogleCalendarApi::GoogleCalendarApi(AuthManager *authManager, QObject *parent)
@@ -98,6 +130,8 @@ QByteArray GoogleCalendarApi::buildCreateEventBody(const NewEventRequest &reques
     obj.insert(QStringLiteral("start"), start);
     obj.insert(QStringLiteral("end"), end);
 
+    insertRemindersIfSet(obj, request);
+
     return QJsonDocument(obj).toJson(QJsonDocument::Compact);
 }
 
@@ -128,6 +162,8 @@ QByteArray GoogleCalendarApi::buildUpdateEventBody(const NewEventRequest &reques
     }
     obj.insert(QStringLiteral("start"), start);
     obj.insert(QStringLiteral("end"), end);
+
+    insertRemindersIfSet(obj, request);
 
     return QJsonDocument(obj).toJson(QJsonDocument::Compact);
 }

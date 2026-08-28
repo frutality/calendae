@@ -8,8 +8,10 @@
 #include "calendar/googlecalendarapi.h"
 #include "calendar/montheventscontroller.h"
 #include "calendar/monthviewwidget.h"
+#include "calendar/reminderscheduler.h"
 #include "calendar/timegrideventscontroller.h"
 #include "calendar/timegridviewwidget.h"
+#include "desktopnotifier.h"
 #include "processmemory.h"
 
 #include <QCloseEvent>
@@ -34,6 +36,7 @@ MainWindow::MainWindow(QWidget *parent)
     connectAuth();
     connectCalendarData();
     connectEventEditing();
+    connectReminders();
 
     restoreWindowState();
     updateUiForState(m_authManager->state());
@@ -72,7 +75,10 @@ void MainWindow::createWidgets()
     m_monthEventsController = new MonthEventsController(m_authManager, m_calendarApi, m_monthView, this);
     m_weekEventsController = new TimeGridEventsController(m_authManager, m_calendarApi, m_weekView, this);
     m_dayEventsController = new TimeGridEventsController(m_authManager, m_calendarApi, m_dayView, this);
-    m_eventsControllers = {m_monthEventsController, m_weekEventsController, m_dayEventsController};
+    m_reminderScheduler = new ReminderScheduler(m_authManager, m_calendarApi, this);
+    m_eventsControllers = {m_monthEventsController, m_weekEventsController, m_dayEventsController, m_reminderScheduler};
+
+    m_desktopNotifier = new DesktopNotifier(this);
 
     ui->mainSplitter->setStretchFactor(0, 0);
     ui->mainSplitter->setStretchFactor(1, 1);
@@ -127,6 +133,11 @@ void MainWindow::connectCalendarData()
         m_calendars = calendars;
         m_calendarSidebar->setCalendars(calendars);
 
+        // The reminder scheduler isn't tied to any on-screen view, so it
+        // always (re)populates here rather than going through the lazy
+        // ensureControllerPopulated() path the three views use.
+        m_reminderScheduler->setCalendars(calendars);
+
         // Only the view actually on screen populates eagerly (matters when
         // startup restored straight into week/day); the other two populate
         // lazily, on first switch to them.
@@ -175,6 +186,39 @@ void MainWindow::connectEventEditing()
         });
         connect(view, &TimeGridViewWidget::eventEditRequested, this, &MainWindow::openEditEventDialog);
     }
+}
+
+void MainWindow::connectReminders()
+{
+    connect(m_reminderScheduler, &ReminderScheduler::reminderDue, m_desktopNotifier, &DesktopNotifier::notify);
+
+    // Whenever a view pulls a fresh batch of events (month/week/day
+    // navigation, first switch to a view, sidebar toggle), let the reminder
+    // scheduler re-scan too — otherwise an event added in the Google web UI
+    // while calendae is open isn't picked up until the 10-minute periodic
+    // refresh. refreshAll() is throttled, so this stays cheap.
+    for (EventsController *controller : std::as_const(m_eventsControllers)) {
+        if (controller == m_reminderScheduler)
+            continue;
+        connect(controller, &EventsController::fetchCycleFinished,
+                m_reminderScheduler, &ReminderScheduler::refreshAll);
+    }
+
+    // The Debug menu (currently just "Test Notification", which fires a
+    // sample DueReminder straight through DesktopNotifier) is hidden unless
+    // CALENDAE_DEBUG_MENU is set in the environment — kept around for
+    // eyeballing the native notification without waiting for a real event.
+    ui->menuDebug->menuAction()->setVisible(qEnvironmentVariableIsSet("CALENDAE_DEBUG_MENU"));
+    connect(ui->actionTestNotification, &QAction::triggered, this, [this] {
+        DueReminder sample;
+        sample.calendarId = QStringLiteral("test");
+        sample.eventId = QStringLiteral("test");
+        sample.title = tr("Test event");
+        sample.startLocal = QDateTime::currentDateTime().addSecs(600);
+        sample.allDay = false;
+        sample.minutesBefore = 10;
+        m_desktopNotifier->notify(sample);
+    });
 }
 
 MainWindow::~MainWindow()

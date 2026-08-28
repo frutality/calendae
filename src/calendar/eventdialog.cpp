@@ -1,10 +1,12 @@
 #include "eventdialog.h"
 #include "ui_eventdialog.h"
 
+#include <QComboBox>
 #include <QDateTime>
 #include <QIcon>
 #include <QPixmap>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QTimeZone>
 
 EventDialog::EventDialog(const QList<Calendar> &writableCalendars, const QDate &initialDate,
@@ -33,6 +35,8 @@ EventDialog::EventDialog(const QList<Calendar> &writableCalendars, const QDate &
     ui->startTimeEdit->setTime(initialTime.value_or(defaultStartTime()));
     ui->endTimeEdit->setTime(ui->startTimeEdit->time().addSecs(3600));
     ui->allDayCheck->setChecked(false);
+
+    setupReminderControls(-1); // new events start with no reminder
 
     connect(ui->titleEdit, &QLineEdit::textChanged, this, &EventDialog::updateOkEnabled);
     connect(ui->startTimeEdit, &QTimeEdit::timeChanged, this, &EventDialog::updateOkEnabled);
@@ -72,6 +76,17 @@ EventDialog::EventDialog(const Calendar &calendar, const Event &event, QWidget *
     const QDate lastDateInclusive = event.allDay ? event.endDate.addDays(-1)
                                                   : event.endDateTime.toLocalTime().date();
     m_multiDayEditUnsupported = lastDateInclusive != event.startDate;
+
+    int popupMinutes = -1;
+    for (const EventReminder &reminder : event.reminderOverrides) {
+        if (reminder.method == QStringLiteral("popup")) {
+            if (popupMinutes < 0)
+                popupMinutes = reminder.minutes; // this app manages a single popup reminder
+        } else {
+            m_preservedOverrides.append(reminder); // keep email/sms reminders intact on save
+        }
+    }
+    setupReminderControls(popupMinutes);
 
     connect(ui->titleEdit, &QLineEdit::textChanged, this, &EventDialog::updateOkEnabled);
     connect(ui->startTimeEdit, &QTimeEdit::timeChanged, this, &EventDialog::updateOkEnabled);
@@ -144,7 +159,102 @@ NewEventRequest EventDialog::buildRequest() const
         request.endDateTime = QDateTime(ui->dateEdit->date(), ui->endTimeEdit->time(), localTimeZone);
     }
 
+    applyReminderToRequest(request);
+
     return request;
+}
+
+void EventDialog::setupReminderControls(int popupMinutes)
+{
+    struct Preset { const char *label; int minutes; };
+    static const Preset kPresets[] = {
+        {QT_TR_NOOP("At start of event"), 0},
+        {QT_TR_NOOP("5 minutes before"), 5},
+        {QT_TR_NOOP("10 minutes before"), 10},
+        {QT_TR_NOOP("15 minutes before"), 15},
+        {QT_TR_NOOP("30 minutes before"), 30},
+        {QT_TR_NOOP("1 hour before"), 60},
+        {QT_TR_NOOP("2 hours before"), 120},
+        {QT_TR_NOOP("1 day before"), 1440},
+    };
+    for (const Preset &preset : kPresets)
+        ui->reminderCombo->addItem(tr(preset.label), preset.minutes);
+    ui->reminderCombo->addItem(tr("Custom…"), -1);
+
+    ui->reminderCustomUnit->addItem(tr("minutes"), 1);
+    ui->reminderCustomUnit->addItem(tr("hours"), 60);
+    ui->reminderCustomUnit->addItem(tr("days"), 1440);
+
+    m_originalReminderMinutes = popupMinutes;
+
+    const int seedMinutes = popupMinutes < 0 ? 10 : popupMinutes;
+    const int presetIndex = ui->reminderCombo->findData(seedMinutes);
+    if (presetIndex >= 0) {
+        ui->reminderCombo->setCurrentIndex(presetIndex);
+        ui->reminderCustomValue->setValue(seedMinutes);
+        ui->reminderCustomUnit->setCurrentIndex(0);
+    } else {
+        ui->reminderCombo->setCurrentIndex(ui->reminderCombo->count() - 1); // Custom…
+        int unitIndex = 0;
+        int value = seedMinutes;
+        if (seedMinutes % 1440 == 0) {
+            unitIndex = 2;
+            value = seedMinutes / 1440;
+        } else if (seedMinutes % 60 == 0) {
+            unitIndex = 1;
+            value = seedMinutes / 60;
+        }
+        ui->reminderCustomUnit->setCurrentIndex(unitIndex);
+        ui->reminderCustomValue->setValue(value);
+    }
+
+    ui->reminderCheck->setChecked(popupMinutes >= 0);
+
+    connect(ui->reminderCheck, &QCheckBox::toggled, this, &EventDialog::onReminderControlsChanged);
+    connect(ui->reminderCombo, &QComboBox::currentIndexChanged, this, &EventDialog::onReminderControlsChanged);
+    onReminderControlsChanged();
+}
+
+void EventDialog::onReminderControlsChanged()
+{
+    const bool on = ui->reminderCheck->isChecked();
+    const bool custom = on && ui->reminderCombo->currentData().toInt() < 0;
+    ui->reminderCombo->setEnabled(on);
+    ui->reminderCustomValue->setVisible(custom);
+    ui->reminderCustomUnit->setVisible(custom);
+}
+
+int EventDialog::selectedReminderMinutes() const
+{
+    if (!ui->reminderCheck->isChecked())
+        return -1;
+    const int presetMinutes = ui->reminderCombo->currentData().toInt();
+    if (presetMinutes >= 0)
+        return presetMinutes;
+    return ui->reminderCustomValue->value() * ui->reminderCustomUnit->currentData().toInt();
+}
+
+void EventDialog::applyReminderToRequest(NewEventRequest &request) const
+{
+    request.preservedReminderOverrides = m_preservedOverrides;
+
+    const int minutes = selectedReminderMinutes(); // < 0 => reminder off
+
+    if (m_mode == Mode::Edit && minutes == m_originalReminderMinutes) {
+        request.reminderMode = NewEventRequest::ReminderMode::Unchanged;
+        return;
+    }
+    if (m_mode == Mode::Create && minutes < 0) {
+        request.reminderMode = NewEventRequest::ReminderMode::Unchanged;
+        return;
+    }
+
+    if (minutes >= 0) {
+        request.reminderMode = NewEventRequest::ReminderMode::Popup;
+        request.popupReminderMinutes = minutes;
+    } else {
+        request.reminderMode = NewEventRequest::ReminderMode::Off;
+    }
 }
 
 void EventDialog::setFormEnabled(bool enabled)
@@ -156,6 +266,10 @@ void EventDialog::setFormEnabled(bool enabled)
     ui->startTimeEdit->setEnabled(enabled);
     ui->endTimeEdit->setEnabled(enabled);
     ui->descriptionEdit->setEnabled(enabled);
+    ui->reminderCheck->setEnabled(enabled);
+    ui->reminderCombo->setEnabled(enabled && ui->reminderCheck->isChecked());
+    ui->reminderCustomValue->setEnabled(enabled);
+    ui->reminderCustomUnit->setEnabled(enabled);
     ui->buttonBox->setEnabled(enabled); // disables Ok/Cancel/Delete together
 }
 

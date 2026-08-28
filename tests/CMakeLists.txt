@@ -12,6 +12,7 @@ set(TGC_TEST_NAMES
     test_eventtimerange
     test_timegridrange
     test_eventgrouping
+    test_reminderschedule
 )
 
 foreach(test_name IN LISTS TGC_TEST_NAMES)

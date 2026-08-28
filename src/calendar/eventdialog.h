@@ -86,6 +86,7 @@ private slots:
     void onAllDayToggled(bool allDay);
     void onOkClicked();
     void onDeleteClicked();
+    void onReminderControlsChanged();
 
 private:
     enum class Mode { Create, Edit };
@@ -94,12 +95,24 @@ private:
     void setFormEnabled(bool enabled);
     static QTime defaultStartTime();
 
+    // Populates the reminder combo/units and seeds them from popupMinutes
+    // (< 0 means "no popup reminder"). Records the seeded state so
+    // buildRequest() can tell whether the user changed it.
+    void setupReminderControls(int popupMinutes);
+    int selectedReminderMinutes() const; // < 0 when the "Remind me" box is unchecked
+    void applyReminderToRequest(NewEventRequest &request) const;
+
     Ui::EventDialog *ui;
     bool m_submitInProgress = false;
     bool m_deleteInProgress = false;
     Mode m_mode = Mode::Create;
     QString m_editingEventId;
     bool m_multiDayEditUnsupported = false;
+
+    // Reminder state as loaded (Edit mode); compared against the form in
+    // buildRequest() to decide between Unchanged / Off / Popup.
+    int m_originalReminderMinutes = -1; // < 0: event had no popup reminder
+    QList<EventReminder> m_preservedOverrides; // non-popup overrides to carry through on save
 };
 
 #endif // EVENTDIALOG_H

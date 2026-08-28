@@ -25,6 +25,8 @@ class MonthEventsController;
 class TimeGridViewWidget;
 class TimeGridEventsController;
 class EventsController;
+class ReminderScheduler;
+class DesktopNotifier;
 class QCloseEvent;
 class QLabel;
 class QStackedWidget;
@@ -50,6 +52,7 @@ private:
     void connectAuth();
     void connectCalendarData();
     void connectEventEditing();
+    void connectReminders();
 
     void updateUiForState(AuthManager::AuthState state);
     void openNewEventDialog(const QDate &date, const std::optional<QTime> &initialTime = std::nullopt);
@@ -104,7 +107,9 @@ private:
     MonthEventsController *m_monthEventsController;
     TimeGridEventsController *m_weekEventsController;
     TimeGridEventsController *m_dayEventsController;
-    QList<EventsController *> m_eventsControllers; // all three, for uniform ops
+    ReminderScheduler *m_reminderScheduler;
+    DesktopNotifier *m_desktopNotifier;
+    QList<EventsController *> m_eventsControllers; // three views + the reminder scheduler, for uniform ops
     bool m_monthControllerPopulated = false;
     bool m_weekControllerPopulated = false;
     bool m_dayControllerPopulated = false;

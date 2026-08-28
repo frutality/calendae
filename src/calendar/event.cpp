@@ -49,6 +49,20 @@ std::optional<QList<Event>> Event::listFromJson(const QByteArray &json,
         event.description = obj.value(QStringLiteral("description")).toString();
         event.recurringEventId = obj.value(QStringLiteral("recurringEventId")).toString();
 
+        if (obj.contains(QStringLiteral("reminders"))) {
+            const QJsonObject reminders = obj.value(QStringLiteral("reminders")).toObject();
+            event.remindersUseDefault = reminders.value(QStringLiteral("useDefault")).toBool(true);
+            const QJsonArray overrides = reminders.value(QStringLiteral("overrides")).toArray();
+            for (const QJsonValue &overrideValue : overrides) {
+                const QJsonObject overrideObj = overrideValue.toObject();
+                EventReminder reminder;
+                reminder.method = overrideObj.value(QStringLiteral("method")).toString();
+                reminder.minutes = overrideObj.value(QStringLiteral("minutes")).toInt();
+                if (!reminder.method.isEmpty())
+                    event.reminderOverrides.append(reminder);
+            }
+        }
+
         if (startObj.contains(QStringLiteral("date")) && endObj.contains(QStringLiteral("date"))) {
             const QDate startDate = QDate::fromString(startObj.value(QStringLiteral("date")).toString(), Qt::ISODate);
             const QDate endDate = QDate::fromString(endObj.value(QStringLiteral("date")).toString(), Qt::ISODate);

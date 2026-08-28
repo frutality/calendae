@@ -1,5 +1,6 @@
 #include "calendar/googlecalendarapi.h"
 
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTest>
@@ -21,6 +22,9 @@ private slots:
     void buildsUpdateEventBodyForAllDayEvent();
     void buildsUpdateEventBodyForTimedEvent();
     void updateEventBodyAlwaysIncludesDescriptionEvenWhenEmpty();
+    void unchangedReminderModeOmitsRemindersFromBothBodies();
+    void popupReminderModeEmitsExplicitOverride();
+    void offReminderModeClearsPopupButKeepsPreservedOverrides();
 };
 
 void TestGoogleCalendarApi::buildsSelectedPatchBody()
@@ -227,6 +231,63 @@ void TestGoogleCalendarApi::updateEventBodyAlwaysIncludesDescriptionEvenWhenEmpt
     // unchanged," not "clear it," so update must always send the key.
     QVERIFY(obj.contains(QStringLiteral("description")));
     QCOMPARE(obj.value(QStringLiteral("description")).toString(), QString());
+}
+
+namespace {
+NewEventRequest timedRequest()
+{
+    const QTimeZone localTimeZone(QTimeZone::LocalTime);
+    NewEventRequest request;
+    request.calendarId = QStringLiteral("someone@example.com");
+    request.summary = QStringLiteral("Standup");
+    request.allDay = false;
+    request.startDateTime = QDateTime(QDate(2026, 8, 25), QTime(9, 0), localTimeZone);
+    request.endDateTime = QDateTime(QDate(2026, 8, 25), QTime(9, 30), localTimeZone);
+    return request;
+}
+} // namespace
+
+void TestGoogleCalendarApi::unchangedReminderModeOmitsRemindersFromBothBodies()
+{
+    NewEventRequest request = timedRequest();
+    request.reminderMode = NewEventRequest::ReminderMode::Unchanged;
+
+    QVERIFY(!QJsonDocument::fromJson(GoogleCalendarApi::buildCreateEventBody(request))
+                 .object().contains(QStringLiteral("reminders")));
+    QVERIFY(!QJsonDocument::fromJson(GoogleCalendarApi::buildUpdateEventBody(request))
+                 .object().contains(QStringLiteral("reminders")));
+}
+
+void TestGoogleCalendarApi::popupReminderModeEmitsExplicitOverride()
+{
+    NewEventRequest request = timedRequest();
+    request.reminderMode = NewEventRequest::ReminderMode::Popup;
+    request.popupReminderMinutes = 120;
+
+    for (const QByteArray &body : {GoogleCalendarApi::buildCreateEventBody(request),
+                                    GoogleCalendarApi::buildUpdateEventBody(request)}) {
+        const QJsonObject reminders = QJsonDocument::fromJson(body).object()
+                                          .value(QStringLiteral("reminders")).toObject();
+        QCOMPARE(reminders.value(QStringLiteral("useDefault")).toBool(true), false);
+        const QJsonArray overrides = reminders.value(QStringLiteral("overrides")).toArray();
+        QCOMPARE(overrides.size(), 1);
+        QCOMPARE(overrides.first().toObject().value(QStringLiteral("method")).toString(), QStringLiteral("popup"));
+        QCOMPARE(overrides.first().toObject().value(QStringLiteral("minutes")).toInt(), 120);
+    }
+}
+
+void TestGoogleCalendarApi::offReminderModeClearsPopupButKeepsPreservedOverrides()
+{
+    NewEventRequest request = timedRequest();
+    request.reminderMode = NewEventRequest::ReminderMode::Off;
+    request.preservedReminderOverrides = {{QStringLiteral("email"), 1440}};
+
+    const QJsonObject reminders = QJsonDocument::fromJson(GoogleCalendarApi::buildUpdateEventBody(request))
+                                      .object().value(QStringLiteral("reminders")).toObject();
+    QCOMPARE(reminders.value(QStringLiteral("useDefault")).toBool(true), false);
+    const QJsonArray overrides = reminders.value(QStringLiteral("overrides")).toArray();
+    QCOMPARE(overrides.size(), 1);
+    QCOMPARE(overrides.first().toObject().value(QStringLiteral("method")).toString(), QStringLiteral("email"));
 }
 
 QTEST_APPLESS_MAIN(TestGoogleCalendarApi)

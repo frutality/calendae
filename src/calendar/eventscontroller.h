@@ -9,13 +9,14 @@
 #include <QString>
 #include <optional>
 
-// Common public contract shared by MonthEventsController and
-// TimeGridEventsController, so MainWindow can populate/enable/clear/refresh
-// all three view controllers (month, week, day) uniformly instead of
-// repeating each call per concrete type. Each concrete controller still
-// privately wires itself to its own view widget's navigation signal
-// (displayedMonthChanged vs displayedRangeChanged) — only this outward-
-// facing surface is unified.
+// Common public contract shared by MonthEventsController,
+// TimeGridEventsController, and the non-view ReminderScheduler, so
+// MainWindow can populate/enable/clear/refresh every controller uniformly
+// (in one loop over m_eventsControllers) instead of repeating each call per
+// concrete type. The view controllers privately wire themselves to their
+// own view widget's navigation signal (displayedMonthChanged vs
+// displayedRangeChanged); ReminderScheduler instead runs its own rolling
+// fetch on a timer. Only this outward-facing surface is unified.
 class EventsController : public QObject
 {
     Q_OBJECT

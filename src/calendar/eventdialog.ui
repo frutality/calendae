@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>420</width>
-    <height>380</height>
+    <width>440</width>
+    <height>430</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -93,6 +93,40 @@
         </size>
        </property>
       </widget>
+     </item>
+     <item row="7" column="0">
+      <widget class="QLabel" name="reminderLabel">
+       <property name="text">
+        <string>Reminder:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="7" column="1">
+      <layout class="QHBoxLayout" name="reminderLayout">
+       <item>
+        <widget class="QCheckBox" name="reminderCheck">
+         <property name="text">
+          <string>Remind me</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="reminderCombo"/>
+       </item>
+       <item>
+        <widget class="QSpinBox" name="reminderCustomValue">
+         <property name="minimum">
+          <number>0</number>
+         </property>
+         <property name="maximum">
+          <number>40320</number>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="reminderCustomUnit"/>
+       </item>
+      </layout>
      </item>
     </layout>
    </item>

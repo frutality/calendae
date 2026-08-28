@@ -13,6 +13,9 @@ private slots:
     void missingSummaryIsKeptEmpty();
     void parsesDescriptionAndRecurringEventIdWhenPresent();
     void descriptionAndRecurringEventIdDefaultToEmptyWhenAbsent();
+    void parsesReminderOverridesKeepingEveryMethod();
+    void useDefaultRemindersYieldNoOverrides();
+    void absentRemindersFieldDefaultsToUseDefaultTrue();
     void skipsItemsMissingIdOrDateFields();
     void extractsNextPageToken();
     void rejectsMalformedJson();
@@ -156,6 +159,78 @@ void TestEvent::descriptionAndRecurringEventIdDefaultToEmptyWhenAbsent()
     QCOMPARE(events->size(), 1);
     QVERIFY(events->first().description.isEmpty());
     QVERIFY(events->first().recurringEventId.isEmpty());
+}
+
+void TestEvent::parsesReminderOverridesKeepingEveryMethod()
+{
+    const QByteArray json = R"({
+        "items": [
+            {
+                "id": "e1",
+                "summary": "Review",
+                "start": {"dateTime": "2026-08-28T14:00:00Z"},
+                "end": {"dateTime": "2026-08-28T15:00:00Z"},
+                "reminders": {
+                    "useDefault": false,
+                    "overrides": [
+                        {"method": "popup", "minutes": 120},
+                        {"method": "email", "minutes": 1440}
+                    ]
+                }
+            }
+        ]
+    })";
+
+    const auto events = Event::listFromJson(json, QStringLiteral("cal1"));
+    QVERIFY(events.has_value());
+    QCOMPARE(events->size(), 1);
+
+    const Event &event = events->first();
+    QVERIFY(!event.remindersUseDefault);
+    QCOMPARE(event.reminderOverrides.size(), 2);
+    QCOMPARE(event.reminderOverrides.at(0).method, QStringLiteral("popup"));
+    QCOMPARE(event.reminderOverrides.at(0).minutes, 120);
+    QCOMPARE(event.reminderOverrides.at(1).method, QStringLiteral("email"));
+    QCOMPARE(event.reminderOverrides.at(1).minutes, 1440);
+}
+
+void TestEvent::useDefaultRemindersYieldNoOverrides()
+{
+    const QByteArray json = R"({
+        "items": [
+            {
+                "id": "e1",
+                "summary": "Review",
+                "start": {"dateTime": "2026-08-28T14:00:00Z"},
+                "end": {"dateTime": "2026-08-28T15:00:00Z"},
+                "reminders": {"useDefault": true}
+            }
+        ]
+    })";
+
+    const auto events = Event::listFromJson(json, QStringLiteral("cal1"));
+    QVERIFY(events.has_value());
+    QVERIFY(events->first().remindersUseDefault);
+    QVERIFY(events->first().reminderOverrides.isEmpty());
+}
+
+void TestEvent::absentRemindersFieldDefaultsToUseDefaultTrue()
+{
+    const QByteArray json = R"({
+        "items": [
+            {
+                "id": "e1",
+                "summary": "Review",
+                "start": {"dateTime": "2026-08-28T14:00:00Z"},
+                "end": {"dateTime": "2026-08-28T15:00:00Z"}
+            }
+        ]
+    })";
+
+    const auto events = Event::listFromJson(json, QStringLiteral("cal1"));
+    QVERIFY(events.has_value());
+    QVERIFY(events->first().remindersUseDefault);
+    QVERIFY(events->first().reminderOverrides.isEmpty());
 }
 
 void TestEvent::skipsItemsMissingIdOrDateFields()

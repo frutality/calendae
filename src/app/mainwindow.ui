@@ -229,12 +229,24 @@
     </property>
     <addaction name="actionSignOut"/>
    </widget>
+   <widget class="QMenu" name="menuDebug">
+    <property name="title">
+     <string>Debug</string>
+    </property>
+    <addaction name="actionTestNotification"/>
+   </widget>
    <addaction name="menuAccount"/>
+   <addaction name="menuDebug"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="actionSignOut">
    <property name="text">
     <string>Sign Out</string>
+   </property>
+  </action>
+  <action name="actionTestNotification">
+   <property name="text">
+    <string>Test Notification</string>
    </property>
   </action>
  </widget>

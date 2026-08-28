@@ -3,7 +3,7 @@ project(calendae LANGUAGES CXX)
 
 option(TINY_GCAL_BUILD_TESTS "Build unit tests" ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Network Widgets LinguistTools)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Network Widgets LinguistTools DBus)
 
 qt_standard_project_setup()
 
@@ -123,6 +123,10 @@ add_library(tgc_calendar STATIC
     src/calendar/eventdialog.ui
     src/calendar/eventpilllabel.h
     src/calendar/eventpilllabel.cpp
+    src/calendar/reminderschedule.h
+    src/calendar/reminderschedule.cpp
+    src/calendar/reminderscheduler.h
+    src/calendar/reminderscheduler.cpp
 )
 
 target_include_directories(tgc_calendar
@@ -143,6 +147,8 @@ qt_add_executable(calendae
     src/app/mainwindow.ui
     src/app/processmemory.h
     src/app/processmemory.cpp
+    src/app/desktopnotifier.h
+    src/app/desktopnotifier.cpp
 )
 
 qt_add_translations(
@@ -154,6 +160,7 @@ target_link_libraries(calendae
     PRIVATE
         tgc_auth
         tgc_calendar
+        Qt::DBus
 )
 
 install(TARGETS calendae
