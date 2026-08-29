@@ -1,5 +1,7 @@
 #include "event.h"
 
+#include <QCborArray>
+#include <QCborValue>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -7,7 +9,19 @@
 
 namespace {
 Q_LOGGING_CATEGORY(lcEvent, "tgc.event")
+
+// ISO-8601 with the offset preserved (Qt::ISODate keeps the trailing
+// "Z"/"+hh:mm"), matching what QDateTime::fromString(..., Qt::ISODate)
+// round-trips. An invalid QDate/QDateTime serializes to an empty string.
+QString dateToString(const QDate &date)
+{
+    return date.isValid() ? date.toString(Qt::ISODate) : QString();
 }
+QString dateTimeToString(const QDateTime &dateTime)
+{
+    return dateTime.isValid() ? dateTime.toString(Qt::ISODate) : QString();
+}
+} // namespace
 
 std::optional<QList<Event>> Event::listFromJson(const QByteArray &json,
                                                  const QString &calendarId,
@@ -97,4 +111,76 @@ std::optional<QList<Event>> Event::listFromJson(const QByteArray &json,
         *nextPageTokenOut = root.value(QStringLiteral("nextPageToken")).toString();
 
     return events;
+}
+
+QCborMap Event::toCbor() const
+{
+    QCborArray reminders;
+    for (const EventReminder &reminder : reminderOverrides) {
+        reminders.append(QCborMap{
+            {QStringLiteral("method"), reminder.method},
+            {QStringLiteral("minutes"), reminder.minutes},
+        });
+    }
+
+    // startDate/endDate are stored even for timed events (where they're
+    // derived from the local-time date of the start/end): keeping them lets
+    // fromCbor stay a plain field copy instead of re-deriving them, so the
+    // derivation rule lives in exactly one place (listFromJson).
+    return QCborMap{
+        {QStringLiteral("id"), id},
+        {QStringLiteral("calendarId"), calendarId},
+        {QStringLiteral("summary"), summary},
+        {QStringLiteral("description"), description},
+        {QStringLiteral("recurringEventId"), recurringEventId},
+        {QStringLiteral("allDay"), allDay},
+        {QStringLiteral("startDate"), dateToString(startDate)},
+        {QStringLiteral("endDate"), dateToString(endDate)},
+        {QStringLiteral("startDateTime"), dateTimeToString(startDateTime)},
+        {QStringLiteral("endDateTime"), dateTimeToString(endDateTime)},
+        {QStringLiteral("remindersUseDefault"), remindersUseDefault},
+        {QStringLiteral("reminderOverrides"), reminders},
+    };
+}
+
+std::optional<Event> Event::fromCbor(const QCborMap &map)
+{
+    Event event;
+    event.id = map.value(QStringLiteral("id")).toString();
+    if (event.id.isEmpty())
+        return std::nullopt;
+
+    event.calendarId = map.value(QStringLiteral("calendarId")).toString();
+    event.summary = map.value(QStringLiteral("summary")).toString();
+    event.description = map.value(QStringLiteral("description")).toString();
+    event.recurringEventId = map.value(QStringLiteral("recurringEventId")).toString();
+    event.allDay = map.value(QStringLiteral("allDay")).toBool();
+    event.startDate = QDate::fromString(map.value(QStringLiteral("startDate")).toString(), Qt::ISODate);
+    event.endDate = QDate::fromString(map.value(QStringLiteral("endDate")).toString(), Qt::ISODate);
+    event.startDateTime = QDateTime::fromString(map.value(QStringLiteral("startDateTime")).toString(), Qt::ISODate);
+    event.endDateTime = QDateTime::fromString(map.value(QStringLiteral("endDateTime")).toString(), Qt::ISODate);
+
+    // Same validity gate as listFromJson: an all-day event needs its date
+    // pair, a timed event its dateTime pair. Anything else is a corrupt
+    // cache entry and is dropped.
+    if (event.allDay) {
+        if (!event.startDate.isValid() || !event.endDate.isValid())
+            return std::nullopt;
+    } else {
+        if (!event.startDateTime.isValid() || !event.endDateTime.isValid())
+            return std::nullopt;
+    }
+
+    event.remindersUseDefault = map.value(QStringLiteral("remindersUseDefault")).toBool(true);
+    const QCborArray reminders = map.value(QStringLiteral("reminderOverrides")).toArray();
+    for (const QCborValue &value : reminders) {
+        const QCborMap reminderMap = value.toMap();
+        EventReminder reminder;
+        reminder.method = reminderMap.value(QStringLiteral("method")).toString();
+        reminder.minutes = reminderMap.value(QStringLiteral("minutes")).toInteger();
+        if (!reminder.method.isEmpty())
+            event.reminderOverrides.append(reminder);
+    }
+
+    return event;
 }

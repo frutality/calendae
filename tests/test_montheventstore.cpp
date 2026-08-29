@@ -1,9 +1,11 @@
 #include "auth/authmanager.h"
 #include "calendar/event.h"
+#include "calendar/eventcachestore.h"
 #include "calendar/googlecalendarapi.h"
 #include "calendar/montheventstore.h"
 
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QTest>
 
 namespace {
@@ -36,9 +38,9 @@ public:
     {
         emit eventsFetched(id, calendarId, events);
     }
-    void failRequest(quint64 id, const QString &calendarId, const QString &message)
+    void failRequest(quint64 id, const QString &calendarId, const QString &message, bool transient = false)
     {
-        emit eventsFetchFailed(id, calendarId, message);
+        emit eventsFetchFailed(id, calendarId, message, transient);
     }
 };
 
@@ -71,6 +73,10 @@ private slots:
     void failedBucketIsReFetchedOnNextEnsure();
     void invalidateAllClearsEverything();
     void sameMonthDifferentYearsAreDistinctBuckets();
+    void diskHitPaintsImmediatelyAndStillRefetches();
+    void refreshFailureKeepsDiskHydratedEvents();
+    void writeThroughPersistsSuccessfulFetch();
+    void invalidateCalendarClearsDiskBucket();
 };
 
 void TestMonthEventStore::ensureMonthsFansOutOneRequestPerBucket()
@@ -262,6 +268,105 @@ void TestMonthEventStore::sameMonthDifferentYearsAreDistinctBuckets()
     QCOMPARE(store.eventsFor(QStringLiteral("a"), {aug2025}).first().id, QStringLiteral("e-2025"));
     QCOMPARE(store.eventsFor(QStringLiteral("a"), {aug2026}).size(), 1);
     QCOMPARE(store.eventsFor(QStringLiteral("a"), {aug2026}).first().id, QStringLiteral("e-2026"));
+}
+
+void TestMonthEventStore::diskHitPaintsImmediatelyAndStillRefetches()
+{
+    QTemporaryDir tmp;
+    EventCacheStore cache(tmp.path());
+    cache.setAccountKey(QStringLiteral("acct"));
+    cache.storeBucket(kAug, QStringLiteral("a"), {makeEvent(QStringLiteral("e1"), QStringLiteral("a"))});
+
+    AuthManager auth;
+    RecordingApi api(&auth);
+    MonthEventStore store(&api, &cache);
+    QSignalSpy updated(&store, &MonthEventStore::bucketUpdated);
+
+    store.ensureMonths({kAug}, {QStringLiteral("a")});
+
+    // Painted synchronously from disk...
+    QCOMPARE(updated.count(), 1);
+    QCOMPARE(store.eventsFor(QStringLiteral("a"), {kAug}).size(), 1);
+    QVERIFY(store.monthsSettled({kAug}, {QStringLiteral("a")}));
+    // ...and still went to the network despite the fresh on-disk copy.
+    QCOMPARE(api.calls.size(), 1);
+
+    api.deliver(api.calls[0].id, QStringLiteral("a"),
+                {makeEvent(QStringLiteral("e1"), QStringLiteral("a")), makeEvent(QStringLiteral("e2"), QStringLiteral("a"))});
+    QVERIFY(updated.wait());
+    QCOMPARE(store.eventsFor(QStringLiteral("a"), {kAug}).size(), 2);
+
+    // Write-through updated the disk copy too.
+    const auto reloaded = cache.loadBucket(kAug, QStringLiteral("a"));
+    QVERIFY(reloaded.has_value());
+    QCOMPARE(reloaded->events.size(), 2);
+}
+
+void TestMonthEventStore::refreshFailureKeepsDiskHydratedEvents()
+{
+    QTemporaryDir tmp;
+    EventCacheStore cache(tmp.path());
+    cache.setAccountKey(QStringLiteral("acct"));
+    cache.storeBucket(kAug, QStringLiteral("a"), {makeEvent(QStringLiteral("e1"), QStringLiteral("a"))});
+
+    AuthManager auth;
+    RecordingApi api(&auth);
+    MonthEventStore store(&api, &cache);
+    QSignalSpy refreshFailed(&store, &MonthEventStore::bucketRefreshFailed);
+    QSignalSpy hardFailed(&store, &MonthEventStore::bucketFetchFailed);
+
+    store.ensureMonths({kAug}, {QStringLiteral("a")});
+    QCOMPARE(api.calls.size(), 1);
+    api.failRequest(api.calls[0].id, QStringLiteral("a"), QStringLiteral("offline"), /*transient=*/true);
+    QVERIFY(refreshFailed.wait());
+
+    QCOMPARE(hardFailed.count(), 0);              // not a hard failure — we still have data
+    QCOMPARE(refreshFailed.count(), 1);
+    QCOMPARE(refreshFailed.first().at(3).toBool(), true); // transient flag propagated
+    QCOMPARE(store.eventsFor(QStringLiteral("a"), {kAug}).size(), 1); // stale copy still shown
+    QVERIFY(store.monthsSettled({kAug}, {QStringLiteral("a")}));
+}
+
+void TestMonthEventStore::writeThroughPersistsSuccessfulFetch()
+{
+    QTemporaryDir tmp;
+    EventCacheStore cache(tmp.path());
+    cache.setAccountKey(QStringLiteral("acct"));
+
+    AuthManager auth;
+    RecordingApi api(&auth);
+    MonthEventStore store(&api, &cache);
+    QSignalSpy updated(&store, &MonthEventStore::bucketUpdated);
+
+    store.ensureMonths({kAug}, {QStringLiteral("a")});
+    QVERIFY(!cache.loadBucket(kAug, QStringLiteral("a")).has_value()); // nothing yet
+    api.deliver(api.calls[0].id, QStringLiteral("a"),
+                {makeEvent(QStringLiteral("e1"), QStringLiteral("a")), makeEvent(QStringLiteral("e2"), QStringLiteral("a"))});
+    QVERIFY(updated.wait());
+
+    const auto stored = cache.loadBucket(kAug, QStringLiteral("a"));
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->events.size(), 2);
+}
+
+void TestMonthEventStore::invalidateCalendarClearsDiskBucket()
+{
+    QTemporaryDir tmp;
+    EventCacheStore cache(tmp.path());
+    cache.setAccountKey(QStringLiteral("acct"));
+
+    AuthManager auth;
+    RecordingApi api(&auth);
+    MonthEventStore store(&api, &cache);
+    QSignalSpy updated(&store, &MonthEventStore::bucketUpdated);
+
+    store.ensureMonths({kAug}, {QStringLiteral("a")});
+    api.deliver(api.calls[0].id, QStringLiteral("a"), {makeEvent(QStringLiteral("e1"), QStringLiteral("a"))});
+    QVERIFY(updated.wait());
+    QVERIFY(cache.loadBucket(kAug, QStringLiteral("a")).has_value());
+
+    store.invalidateCalendar(QStringLiteral("a"));
+    QVERIFY(!cache.loadBucket(kAug, QStringLiteral("a")).has_value());
 }
 
 QTEST_GUILESS_MAIN(TestMonthEventStore)

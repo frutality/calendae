@@ -4,6 +4,7 @@
 #include "auth/authmanager.h"
 #include "calendar/calendar.h"
 #include "calendar/event.h"
+#include "calendar/eventcachestore.h"
 
 #include <QDate>
 #include <QDateTime>
@@ -31,6 +32,7 @@ class DesktopNotifier;
 class QCloseEvent;
 class QLabel;
 class QStackedWidget;
+class QTimer;
 
 class MainWindow : public QMainWindow
 {
@@ -48,12 +50,25 @@ private:
     // readability. createWidgets() must run before the connect* methods —
     // it creates m_calendarApi and the events controllers they wire up.
     void setupMemoryIndicator();
+    void setupConnectivityIndicator();
     void createWidgets();
     void connectViewSwitching();
     void connectAuth();
     void connectCalendarData();
     void connectEventEditing();
     void connectReminders();
+
+    // Applies a calendar list to the sidebar and every controller. fromCache
+    // means it came from EventCacheStore on a cold start (instant, possibly
+    // offline) rather than from the network — the real calendarListFetched
+    // reply then calls this again with fromCache=false and wins.
+    void applyCalendarList(const QList<Calendar> &calendars, bool fromCache);
+
+    // "Google Calendar unavailable" status + a slow poll to notice it
+    // coming back. Entered only on a transient (connectivity) failure, left
+    // on the first successful server reply.
+    void enterServerUnavailable();
+    void leaveServerUnavailable();
 
     void updateUiForState(AuthManager::AuthState state);
     void openNewEventDialog(const QDate &date, const std::optional<QTime> &initialTime = std::nullopt);
@@ -98,6 +113,7 @@ private:
 
     Ui::MainWindow *ui;
     AuthManager *m_authManager;
+    EventCacheStore m_eventCacheStore; // on-disk mirror of m_monthEventStore + last calendar list
     GoogleCalendarApi *m_calendarApi;
     MonthEventStore *m_monthEventStore; // shared month-granularity event cache behind the three views
     CalendarSidebarWidget *m_calendarSidebar;
@@ -118,6 +134,9 @@ private:
 
     QList<Calendar> m_calendars; // most recent calendarListFetched result, kept in sync with sidebar toggles
     QLabel *m_memoryUsageLabel;
+    QLabel *m_connectivityLabel = nullptr; // permanent status-bar widget, shown only while offline
+    QTimer *m_reconnectTimer = nullptr;    // slow poll while offline
+    bool m_serverUnavailable = false;
     quint64 m_nextEventCreateRequestId = 1;
     quint64 m_nextEventUpdateRequestId = 1;
     quint64 m_nextEventDeleteRequestId = 1;

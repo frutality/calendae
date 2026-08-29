@@ -1,6 +1,7 @@
 #ifndef EVENT_H
 #define EVENT_H
 
+#include <QCborMap>
 #include <QDate>
 #include <QDateTime>
 #include <QList>
@@ -52,6 +53,16 @@ struct Event
                                                       const QString &calendarId,
                                                       QString *nextPageTokenOut = nullptr,
                                                       QString *errorOut = nullptr);
+
+    // Round-trips an already-parsed Event through CBOR for the on-disk event
+    // cache (EventCacheStore). Deliberately separate from listFromJson: that
+    // one parses Google's wire format, this one persists our own struct, so
+    // the two can evolve independently. fromCbor applies the same validity
+    // gate as listFromJson — a missing id, or neither a valid date pair nor
+    // a valid dateTime pair, yields std::nullopt so a corrupt entry is
+    // skipped rather than resurrected half-populated.
+    QCborMap toCbor() const;
+    static std::optional<Event> fromCbor(const QCborMap &map);
 };
 
 #endif // EVENT_H

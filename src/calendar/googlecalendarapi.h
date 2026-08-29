@@ -6,11 +6,11 @@
 #include "event.h"
 #include "neweventrequest.h"
 
+#include <QNetworkReply>
 #include <QObject>
 
 QT_BEGIN_NAMESPACE
 class QNetworkAccessManager;
-class QNetworkReply;
 class QNetworkRequest;
 QT_END_NAMESPACE
 
@@ -34,6 +34,14 @@ public:
     static QByteArray buildCreateEventBody(const NewEventRequest &request);
     static QUrl buildEventDetailUrl(const QString &calendarId, const QString &eventId);
     static QByteArray buildUpdateEventBody(const NewEventRequest &request);
+
+    // True when a failed reply looks like "can't reach the server right now"
+    // (connection refused, DNS failure, timeout, transient proxy/network
+    // error) rather than a request the server actually answered. Drives the
+    // "server unavailable, showing saved data" status and its quiet retry
+    // loop; an HTTP status >= 400 (401/403/404/5xx) is never transient here —
+    // the server replied, so retrying on a timer wouldn't help.
+    static bool isTransientNetworkError(QNetworkReply::NetworkError error, int httpStatusCode);
 
 public slots:
     // Fetches the first page only (Google default maxResults=100); does not
@@ -86,10 +94,10 @@ public slots:
 
 signals:
     void calendarListFetched(const QList<Calendar> &calendars);
-    void calendarListFetchFailed(const QString &message);
+    void calendarListFetchFailed(const QString &message, bool transient);
     void calendarSelectedChangeFailed(const QString &calendarId, bool revertToSelected, const QString &message);
     void eventsFetched(quint64 requestId, const QString &calendarId, const QList<Event> &events);
-    void eventsFetchFailed(quint64 requestId, const QString &calendarId, const QString &message);
+    void eventsFetchFailed(quint64 requestId, const QString &calendarId, const QString &message, bool transient);
     void eventCreated(quint64 requestId, const QString &calendarId);
     void eventCreateFailed(quint64 requestId, const QString &calendarId, const QString &message);
     void eventUpdated(quint64 requestId, const QString &calendarId, const QString &eventId);

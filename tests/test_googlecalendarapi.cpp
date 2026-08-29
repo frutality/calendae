@@ -25,6 +25,7 @@ private slots:
     void unchangedReminderModeOmitsRemindersFromBothBodies();
     void popupReminderModeEmitsExplicitOverride();
     void offReminderModeClearsPopupButKeepsPreservedOverrides();
+    void classifiesTransientNetworkErrors();
 };
 
 void TestGoogleCalendarApi::buildsSelectedPatchBody()
@@ -288,6 +289,26 @@ void TestGoogleCalendarApi::offReminderModeClearsPopupButKeepsPreservedOverrides
     const QJsonArray overrides = reminders.value(QStringLiteral("overrides")).toArray();
     QCOMPARE(overrides.size(), 1);
     QCOMPARE(overrides.first().toObject().value(QStringLiteral("method")).toString(), QStringLiteral("email"));
+}
+
+void TestGoogleCalendarApi::classifiesTransientNetworkErrors()
+{
+    // Connectivity-class errors with no HTTP status: transient.
+    QVERIFY(GoogleCalendarApi::isTransientNetworkError(QNetworkReply::ConnectionRefusedError, 0));
+    QVERIFY(GoogleCalendarApi::isTransientNetworkError(QNetworkReply::HostNotFoundError, 0));
+    QVERIFY(GoogleCalendarApi::isTransientNetworkError(QNetworkReply::TimeoutError, 0));
+    QVERIFY(GoogleCalendarApi::isTransientNetworkError(QNetworkReply::TemporaryNetworkFailureError, 0));
+    QVERIFY(GoogleCalendarApi::isTransientNetworkError(QNetworkReply::ProxyConnectionRefusedError, 0));
+
+    // The server answered — never transient, whatever the QNetworkReply code says.
+    QVERIFY(!GoogleCalendarApi::isTransientNetworkError(QNetworkReply::ContentAccessDenied, 401));
+    QVERIFY(!GoogleCalendarApi::isTransientNetworkError(QNetworkReply::UnknownContentError, 403));
+    QVERIFY(!GoogleCalendarApi::isTransientNetworkError(QNetworkReply::InternalServerError, 500));
+    QVERIFY(!GoogleCalendarApi::isTransientNetworkError(QNetworkReply::ConnectionRefusedError, 503));
+
+    // Non-connectivity errors without a status: not transient.
+    QVERIFY(!GoogleCalendarApi::isTransientNetworkError(QNetworkReply::NoError, 0));
+    QVERIFY(!GoogleCalendarApi::isTransientNetworkError(QNetworkReply::ProtocolFailure, 0));
 }
 
 QTEST_APPLESS_MAIN(TestGoogleCalendarApi)

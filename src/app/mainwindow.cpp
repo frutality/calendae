@@ -22,6 +22,7 @@
 #include <QScreen>
 #include <QSettings>
 #include <QStackedWidget>
+#include <QStatusBar>
 #include <QTimer>
 
 MainWindow::MainWindow(QWidget *parent)
@@ -33,6 +34,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     setupMemoryIndicator();
     createWidgets();
+    setupConnectivityIndicator();
     connectViewSwitching();
     connectAuth();
     connectCalendarData();
@@ -57,6 +59,23 @@ void MainWindow::setupMemoryIndicator()
     m_memoryUsageLabel->setText(formatMemorySize(currentProcessResidentMemoryBytes()));
 }
 
+void MainWindow::setupConnectivityIndicator()
+{
+    m_connectivityLabel = new QLabel(this);
+    m_connectivityLabel->setContentsMargins(8, 0, 8, 0);
+    m_connectivityLabel->hide();
+    statusBar()->addPermanentWidget(m_connectivityLabel);
+
+    // Slow on purpose: this only exists to notice the network coming back,
+    // and a successful fetch anywhere else already clears the state sooner.
+    m_reconnectTimer = new QTimer(this);
+    m_reconnectTimer->setInterval(90 * 1000);
+    connect(m_reconnectTimer, &QTimer::timeout, this, [this] {
+        if (m_authManager->state() == AuthManager::AuthState::SignedIn)
+            m_calendarApi->fetchCalendarList(); // success -> calendarListFetched -> leaveServerUnavailable()
+    });
+}
+
 void MainWindow::createWidgets()
 {
     m_calendarSidebar = new CalendarSidebarWidget(this);
@@ -73,7 +92,7 @@ void MainWindow::createWidgets()
     m_viewStack->addWidget(m_dayView);
 
     m_calendarApi = new GoogleCalendarApi(m_authManager, this);
-    m_monthEventStore = new MonthEventStore(m_calendarApi, this);
+    m_monthEventStore = new MonthEventStore(m_calendarApi, &m_eventCacheStore, this);
     m_monthEventsController = new MonthEventsController(m_authManager, m_monthEventStore, m_monthView, this);
     m_weekEventsController = new TimeGridEventsController(m_authManager, m_monthEventStore, m_weekView, this);
     m_dayEventsController = new TimeGridEventsController(m_authManager, m_monthEventStore, m_dayView, this);
@@ -115,13 +134,29 @@ void MainWindow::connectAuth()
         statusBar()->showMessage(message, 8000);
     });
 
+    // Runs before the fetchCalendarList() connect below, so the disk-cached
+    // calendar list and events can paint immediately while the network
+    // request is still in flight (or failing, offline).
+    connect(m_authManager, &AuthManager::signedIn, this, [this] {
+        m_eventCacheStore.setAccountKey(m_authManager->accountKey());
+        m_eventCacheStore.prune(30, 200);
+        if (m_calendars.isEmpty()) {
+            if (const std::optional<QList<Calendar>> cached = m_eventCacheStore.loadCalendars())
+                applyCalendarList(*cached, /*fromCache=*/true);
+        }
+    });
     connect(m_authManager, &AuthManager::signedIn, m_calendarApi, &GoogleCalendarApi::fetchCalendarList);
     connect(m_authManager, &AuthManager::signedOut, m_calendarSidebar, &CalendarSidebarWidget::clear);
     for (EventsController *controller : std::as_const(m_eventsControllers))
         connect(m_authManager, &AuthManager::signedOut, controller, &EventsController::clear);
     connect(m_authManager, &AuthManager::signedOut, this, [this] {
         m_calendars.clear();
-        m_monthEventStore->invalidateAll();
+        m_monthEventStore->invalidateAll(/*alsoDisk=*/true); // explicit sign-out: drop this account's cache
+        m_eventCacheStore.setAccountKey(QString());
+        // Clear any "offline" state silently — no "reconnected" toast on sign-out.
+        m_serverUnavailable = false;
+        m_reconnectTimer->stop();
+        m_connectivityLabel->hide();
         m_monthControllerPopulated = false;
         m_weekControllerPopulated = false;
         m_dayControllerPopulated = false;
@@ -133,30 +168,30 @@ void MainWindow::connectCalendarData()
     connect(m_calendarApi, &GoogleCalendarApi::calendarListFetched, this, [this](const QList<Calendar> &calendars) {
         if (m_authManager->state() != AuthManager::AuthState::SignedIn)
             return; // a late reply arrived after sign-out
-        m_calendars = calendars;
-        m_calendarSidebar->setCalendars(calendars);
-
-        // The reminder scheduler isn't tied to any on-screen view, so it
-        // always (re)populates here rather than going through the lazy
-        // ensureControllerPopulated() path the three views use.
-        m_reminderScheduler->setCalendars(calendars);
-
-        // Only the view actually on screen populates eagerly (matters when
-        // startup restored straight into week/day); the other two populate
-        // lazily, on first switch to them.
-        m_monthControllerPopulated = false;
-        m_weekControllerPopulated = false;
-        m_dayControllerPopulated = false;
-        if (m_viewStack->currentWidget() == m_weekView)
-            ensureControllerPopulated(m_weekEventsController, m_weekControllerPopulated);
-        else if (m_viewStack->currentWidget() == m_dayView)
-            ensureControllerPopulated(m_dayEventsController, m_dayControllerPopulated);
+        leaveServerUnavailable(); // a successful reply proves we're back online
+        m_eventCacheStore.storeCalendars(calendars);
+        applyCalendarList(calendars, /*fromCache=*/false);
+    });
+    connect(m_calendarApi, &GoogleCalendarApi::calendarListFetchFailed, this, [this](const QString &message, bool transient) {
+        if (transient)
+            enterServerUnavailable();
         else
-            ensureControllerPopulated(m_monthEventsController, m_monthControllerPopulated);
+            statusBar()->showMessage(message, 8000);
     });
-    connect(m_calendarApi, &GoogleCalendarApi::calendarListFetchFailed, this, [this](const QString &message) {
-        statusBar()->showMessage(message, 8000);
-    });
+    // Connectivity tracking off the shared store: a transient bucket failure
+    // means "offline"; a successful server refresh means "back online".
+    connect(m_monthEventStore, &MonthEventStore::bucketFetchFailed, this,
+            [this](const QDate &, const QString &, const QString &, bool transient) {
+                if (transient)
+                    enterServerUnavailable();
+            });
+    connect(m_monthEventStore, &MonthEventStore::bucketRefreshFailed, this,
+            [this](const QDate &, const QString &, const QString &, bool transient) {
+                if (transient)
+                    enterServerUnavailable();
+            });
+    connect(m_monthEventStore, &MonthEventStore::bucketRefreshed, this,
+            [this](const QDate &, const QString &) { leaveServerUnavailable(); });
     connect(m_calendarSidebar, &CalendarSidebarWidget::visibilitySetRequested,
             m_calendarApi, &GoogleCalendarApi::setCalendarSelected);
     connect(m_calendarSidebar, &CalendarSidebarWidget::visibilitySetRequested, this,
@@ -484,6 +519,59 @@ void MainWindow::ensureControllerPopulated(EventsController *controller, bool &p
         return;
     populated = true;
     controller->setCalendars(m_calendars);
+}
+
+void MainWindow::applyCalendarList(const QList<Calendar> &calendars, bool fromCache)
+{
+    Q_UNUSED(fromCache); // the flag documents intent; behaviour is identical
+    m_calendars = calendars;
+    m_calendarSidebar->setCalendars(calendars);
+
+    // The reminder scheduler isn't tied to any on-screen view, so it always
+    // (re)populates here rather than going through the lazy
+    // ensureControllerPopulated() path the three views use.
+    m_reminderScheduler->setCalendars(calendars);
+
+    // Only the view actually on screen populates eagerly (matters when
+    // startup restored straight into week/day); the other two populate
+    // lazily, on first switch to them.
+    m_monthControllerPopulated = false;
+    m_weekControllerPopulated = false;
+    m_dayControllerPopulated = false;
+    if (m_viewStack->currentWidget() == m_weekView)
+        ensureControllerPopulated(m_weekEventsController, m_weekControllerPopulated);
+    else if (m_viewStack->currentWidget() == m_dayView)
+        ensureControllerPopulated(m_dayEventsController, m_dayControllerPopulated);
+    else
+        ensureControllerPopulated(m_monthEventsController, m_monthControllerPopulated);
+}
+
+void MainWindow::enterServerUnavailable()
+{
+    if (m_serverUnavailable)
+        return;
+    m_serverUnavailable = true;
+    m_connectivityLabel->setText(tr("Google Calendar unavailable — showing saved data"));
+    m_connectivityLabel->show();
+    m_reconnectTimer->start();
+}
+
+void MainWindow::leaveServerUnavailable()
+{
+    if (!m_serverUnavailable)
+        return;
+    m_serverUnavailable = false;
+    m_reconnectTimer->stop();
+    m_connectivityLabel->hide();
+    statusBar()->showMessage(tr("Reconnected to Google Calendar"), 4000);
+
+    // Nudge the reminder schedule (which fetches independently of the store)
+    // back into life. The visible views heal on their own: a leave triggered
+    // by calendarListFetched re-runs applyCalendarList() right after this,
+    // and buckets that failed while offline are flagged for re-fetch on the
+    // next ensureMonths() anyway.
+    if (m_authManager->state() == AuthManager::AuthState::SignedIn)
+        m_reminderScheduler->refreshAll();
 }
 
 void MainWindow::updateCachedCalendarSelected(const QString &calendarId, bool selected)

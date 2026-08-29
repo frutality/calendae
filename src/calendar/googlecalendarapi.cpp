@@ -82,6 +82,32 @@ QByteArray GoogleCalendarApi::buildSelectedPatchBody(bool selected)
     return QJsonDocument(obj).toJson(QJsonDocument::Compact);
 }
 
+bool GoogleCalendarApi::isTransientNetworkError(QNetworkReply::NetworkError error, int httpStatusCode)
+{
+    if (httpStatusCode >= 400)
+        return false; // the server answered (401/403/404/5xx) — not a connectivity problem
+
+    switch (error) {
+    case QNetworkReply::ConnectionRefusedError:
+    case QNetworkReply::RemoteHostClosedError:
+    case QNetworkReply::HostNotFoundError:
+    case QNetworkReply::TimeoutError:
+    case QNetworkReply::OperationCanceledError: // transfer timeout fires as this
+    case QNetworkReply::TemporaryNetworkFailureError:
+    case QNetworkReply::NetworkSessionFailedError:
+    case QNetworkReply::BackgroundRequestNotAllowedError:
+    case QNetworkReply::ProxyConnectionRefusedError:
+    case QNetworkReply::ProxyConnectionClosedError:
+    case QNetworkReply::ProxyNotFoundError:
+    case QNetworkReply::ProxyTimeoutError:
+    case QNetworkReply::UnknownNetworkError:
+    case QNetworkReply::UnknownProxyError:
+        return true;
+    default:
+        return false;
+    }
+}
+
 QString GoogleCalendarApi::extractApiErrorMessage(const QByteArray &body, int httpStatusCode)
 {
     const QJsonDocument doc = QJsonDocument::fromJson(body);
@@ -179,7 +205,7 @@ QNetworkRequest GoogleCalendarApi::authorizedRequest(const QUrl &url) const
 void GoogleCalendarApi::fetchCalendarList()
 {
     if (m_authManager->state() != AuthManager::AuthState::SignedIn) {
-        emit calendarListFetchFailed(tr("You are not signed in."));
+        emit calendarListFetchFailed(tr("You are not signed in."), false);
         return;
     }
 
@@ -191,19 +217,20 @@ void GoogleCalendarApi::fetchCalendarList()
         const QByteArray body = reply->readAll();
 
         if (status == 401) {
-            emit calendarListFetchFailed(tr("Your session may have expired. Please sign in again."));
+            emit calendarListFetchFailed(tr("Your session may have expired. Please sign in again."), false);
             return;
         }
 
         if (body.isEmpty()) {
-            emit calendarListFetchFailed(tr("Could not load calendars: %1").arg(reply->errorString()));
+            emit calendarListFetchFailed(tr("Could not load calendars: %1").arg(reply->errorString()),
+                                          isTransientNetworkError(reply->error(), status));
             return;
         }
 
         QString error;
         const std::optional<QList<Calendar>> calendars = Calendar::listFromJson(body, &error);
         if (!calendars) {
-            emit calendarListFetchFailed(tr("Could not load calendars: %1").arg(extractApiErrorMessage(body, status)));
+            emit calendarListFetchFailed(tr("Could not load calendars: %1").arg(extractApiErrorMessage(body, status)), false);
             return;
         }
 
@@ -246,7 +273,7 @@ quint64 GoogleCalendarApi::fetchEvents(const QString &calendarId, const QString 
     const quint64 requestId = m_nextFetchRequestId++;
 
     if (m_authManager->state() != AuthManager::AuthState::SignedIn) {
-        emit eventsFetchFailed(requestId, calendarId, tr("You are not signed in."));
+        emit eventsFetchFailed(requestId, calendarId, tr("You are not signed in."), false);
         return requestId;
     }
 
@@ -268,12 +295,15 @@ void GoogleCalendarApi::fetchEventsPage(quint64 requestId, const QString &calend
                 const QByteArray body = reply->readAll();
 
                 if (status == 401) {
-                    emit eventsFetchFailed(requestId, calendarId, tr("Your session may have expired. Please sign in again."));
+                    emit eventsFetchFailed(requestId, calendarId,
+                                            tr("Your session may have expired. Please sign in again."), false);
                     return;
                 }
 
                 if (body.isEmpty()) {
-                    emit eventsFetchFailed(requestId, calendarId, tr("Could not load events: %1").arg(reply->errorString()));
+                    emit eventsFetchFailed(requestId, calendarId,
+                                            tr("Could not load events: %1").arg(reply->errorString()),
+                                            isTransientNetworkError(reply->error(), status));
                     return;
                 }
 
@@ -281,7 +311,8 @@ void GoogleCalendarApi::fetchEventsPage(quint64 requestId, const QString &calend
                 QString error;
                 const std::optional<QList<Event>> page = Event::listFromJson(body, calendarId, &nextPageToken, &error);
                 if (!page) {
-                    emit eventsFetchFailed(requestId, calendarId, tr("Could not load events: %1").arg(extractApiErrorMessage(body, status)));
+                    emit eventsFetchFailed(requestId, calendarId,
+                                            tr("Could not load events: %1").arg(extractApiErrorMessage(body, status)), false);
                     return;
                 }
 

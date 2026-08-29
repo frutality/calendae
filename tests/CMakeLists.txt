@@ -10,6 +10,7 @@ set(TGC_TEST_NAMES
     test_monthgrid
     test_monthkeys
     test_montheventstore
+    test_eventcachestore
     test_event
     test_eventtimerange
     test_timegridrange

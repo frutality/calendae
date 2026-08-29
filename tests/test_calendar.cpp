@@ -8,6 +8,8 @@ class TestCalendar : public QObject
 private slots:
     void parsesCalendarList();
     void rejectsMalformedJson();
+    void cborRoundTripsCalendar();
+    void fromCborRejectsEntryMissingIdOrSummary();
 };
 
 void TestCalendar::parsesCalendarList()
@@ -69,6 +71,41 @@ void TestCalendar::rejectsMalformedJson()
     error.clear();
     QVERIFY(!Calendar::listFromJson(R"({"kind":"calendar#calendarList"})", &error).has_value());
     QVERIFY(!error.isEmpty());
+}
+
+void TestCalendar::cborRoundTripsCalendar()
+{
+    Calendar source;
+    source.id = QStringLiteral("primary@example.com");
+    source.summary = QStringLiteral("Primary");
+    source.color = QColor(QStringLiteral("#0088aa"));
+    source.selected = true;
+    source.accessRole = QStringLiteral("owner");
+    source.primary = true;
+
+    const auto restored = Calendar::fromCbor(source.toCbor());
+    QVERIFY(restored.has_value());
+    QCOMPARE(restored->id, source.id);
+    QCOMPARE(restored->summary, source.summary);
+    QCOMPARE(restored->color, source.color);
+    QCOMPARE(restored->selected, true);
+    QCOMPARE(restored->accessRole, QStringLiteral("owner"));
+    QCOMPARE(restored->primary, true);
+}
+
+void TestCalendar::fromCborRejectsEntryMissingIdOrSummary()
+{
+    Calendar source;
+    source.id = QStringLiteral("a@example.com");
+    source.summary = QStringLiteral("Work");
+
+    QCborMap missingId = source.toCbor();
+    missingId.remove(QStringLiteral("id"));
+    QVERIFY(!Calendar::fromCbor(missingId).has_value());
+
+    QCborMap missingSummary = source.toCbor();
+    missingSummary.remove(QStringLiteral("summary"));
+    QVERIFY(!Calendar::fromCbor(missingSummary).has_value());
 }
 
 QTEST_APPLESS_MAIN(TestCalendar)

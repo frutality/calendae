@@ -43,6 +43,14 @@ public:
     // Valid only while state() == SignedIn.
     QString accessToken() const { return m_accessToken; }
 
+    // A stable, non-reversible per-account identifier (hex SHA-256 of the
+    // current refresh token), for namespacing on-disk caches so one
+    // account's data can't be shown for another. Empty when no refresh
+    // token is held. Note: signing out and back in mints a new refresh
+    // token, hence a new key — acceptable, since sign-out wipes the cache
+    // anyway and stale directories are pruned by age.
+    QString accountKey() const;
+
     // Exposed for unit testing: pure construction of the Google
     // authorization-endpoint URL, no I/O involved.
     static QUrl buildAuthorizationUrl(const OAuthClientCredentials &credentials,

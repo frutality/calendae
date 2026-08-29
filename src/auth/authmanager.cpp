@@ -4,6 +4,7 @@
 
 #include <keychain.h>
 
+#include <QCryptographicHash>
 #include <QDesktopServices>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -39,6 +40,14 @@ AuthManager::AuthManager(QObject *parent)
     connect(&m_proactiveRefreshTimer, &QTimer::timeout, this, [this] {
         refreshAccessToken(RefreshContext::Proactive);
     });
+}
+
+QString AuthManager::accountKey() const
+{
+    if (m_refreshToken.isEmpty())
+        return QString();
+    return QString::fromLatin1(
+        QCryptographicHash::hash(m_refreshToken.toUtf8(), QCryptographicHash::Sha256).toHex());
 }
 
 QUrl AuthManager::buildAuthorizationUrl(const OAuthClientCredentials &credentials,

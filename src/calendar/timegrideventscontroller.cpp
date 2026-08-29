@@ -130,13 +130,18 @@ void TimeGridEventsController::onBucketUpdated(const QDate &monthKey, const QStr
     maybeEmitCycleFinished();
 }
 
-void TimeGridEventsController::onBucketFetchFailed(const QDate &monthKey, const QString &calendarId, const QString &message)
+void TimeGridEventsController::onBucketFetchFailed(const QDate &monthKey, const QString &calendarId,
+                                                    const QString &message, bool transient)
 {
     if (!currentMonthKeys().contains(monthKey))
         return;
 
-    const QString calendarName = m_calendarsById.contains(calendarId) ? m_calendarsById.value(calendarId).summary : calendarId;
-    emit eventFetchFailed(tr("Could not load events for \"%1\": %2").arg(calendarName, message));
+    // See MonthEventsController::onBucketFetchFailed: transient failures are
+    // surfaced only by the window-level connectivity indicator.
+    if (!transient) {
+        const QString calendarName = m_calendarsById.contains(calendarId) ? m_calendarsById.value(calendarId).summary : calendarId;
+        emit eventFetchFailed(tr("Could not load events for \"%1\": %2").arg(calendarName, message));
+    }
 
     maybeEmitCycleFinished();
 }

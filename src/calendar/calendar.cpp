@@ -1,5 +1,6 @@
 #include "calendar.h"
 
+#include <QCborValue>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -50,4 +51,33 @@ std::optional<QList<Calendar>> Calendar::listFromJson(const QByteArray &json, QS
     }
 
     return calendars;
+}
+
+QCborMap Calendar::toCbor() const
+{
+    return QCborMap{
+        {QStringLiteral("id"), id},
+        {QStringLiteral("summary"), summary},
+        {QStringLiteral("color"), color.isValid() ? color.name(QColor::HexRgb) : QString()},
+        {QStringLiteral("selected"), selected},
+        {QStringLiteral("accessRole"), accessRole},
+        {QStringLiteral("primary"), primary},
+    };
+}
+
+std::optional<Calendar> Calendar::fromCbor(const QCborMap &map)
+{
+    Calendar calendar;
+    calendar.id = map.value(QStringLiteral("id")).toString();
+    calendar.summary = map.value(QStringLiteral("summary")).toString();
+    if (calendar.id.isEmpty() || calendar.summary.isEmpty())
+        return std::nullopt;
+
+    calendar.color = QColor(map.value(QStringLiteral("color")).toString());
+    if (!calendar.color.isValid())
+        calendar.color = QColor(Qt::gray);
+    calendar.selected = map.value(QStringLiteral("selected")).toBool(false);
+    calendar.accessRole = map.value(QStringLiteral("accessRole")).toString();
+    calendar.primary = map.value(QStringLiteral("primary")).toBool(false);
+    return calendar;
 }

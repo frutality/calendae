@@ -19,6 +19,10 @@ private slots:
     void skipsItemsMissingIdOrDateFields();
     void extractsNextPageToken();
     void rejectsMalformedJson();
+    void cborRoundTripsAllDayEvent();
+    void cborRoundTripsTimedEventWithReminders();
+    void fromCborRejectsEntryMissingId();
+    void fromCborRejectsEntryMissingDateFields();
 };
 
 void TestEvent::parsesAllDayEvent()
@@ -276,6 +280,84 @@ void TestEvent::rejectsMalformedJson()
     error.clear();
     QVERIFY(!Event::listFromJson(R"({"kind":"calendar#events"})", QStringLiteral("cal1"), nullptr, &error).has_value());
     QVERIFY(!error.isEmpty());
+}
+
+void TestEvent::cborRoundTripsAllDayEvent()
+{
+    Event source;
+    source.id = QStringLiteral("abc123");
+    source.calendarId = QStringLiteral("cal1");
+    source.summary = QStringLiteral("Company Holiday");
+    source.description = QStringLiteral("Office closed");
+    source.recurringEventId = QStringLiteral("abc");
+    source.allDay = true;
+    source.startDate = QDate(2026, 8, 24);
+    source.endDate = QDate(2026, 8, 25);
+
+    const auto restored = Event::fromCbor(source.toCbor());
+    QVERIFY(restored.has_value());
+    QCOMPARE(restored->id, source.id);
+    QCOMPARE(restored->calendarId, source.calendarId);
+    QCOMPARE(restored->summary, source.summary);
+    QCOMPARE(restored->description, source.description);
+    QCOMPARE(restored->recurringEventId, source.recurringEventId);
+    QVERIFY(restored->allDay);
+    QCOMPARE(restored->startDate, source.startDate);
+    QCOMPARE(restored->endDate, source.endDate);
+    QVERIFY(restored->remindersUseDefault);
+    QVERIFY(restored->reminderOverrides.isEmpty());
+}
+
+void TestEvent::cborRoundTripsTimedEventWithReminders()
+{
+    Event source;
+    source.id = QStringLiteral("timed1");
+    source.calendarId = QStringLiteral("cal1");
+    source.summary = QStringLiteral("Standup");
+    source.allDay = false;
+    source.startDateTime = QDateTime::fromString(QStringLiteral("2026-08-24T09:00:00-07:00"), Qt::ISODate);
+    source.endDateTime = QDateTime::fromString(QStringLiteral("2026-08-24T09:30:00-07:00"), Qt::ISODate);
+    source.startDate = QDate(2026, 8, 24);
+    source.endDate = QDate(2026, 8, 24);
+    source.remindersUseDefault = false;
+    source.reminderOverrides = {EventReminder{QStringLiteral("popup"), 10},
+                                EventReminder{QStringLiteral("email"), 1440}};
+
+    const auto restored = Event::fromCbor(source.toCbor());
+    QVERIFY(restored.has_value());
+    QVERIFY(!restored->allDay);
+    QCOMPARE(restored->startDateTime, source.startDateTime);
+    QCOMPARE(restored->endDateTime, source.endDateTime);
+    QCOMPARE(restored->startDate, source.startDate);
+    QVERIFY(!restored->remindersUseDefault);
+    QCOMPARE(restored->reminderOverrides.size(), 2);
+    QCOMPARE(restored->reminderOverrides.at(0).method, QStringLiteral("popup"));
+    QCOMPARE(restored->reminderOverrides.at(0).minutes, 10);
+    QCOMPARE(restored->reminderOverrides.at(1).method, QStringLiteral("email"));
+    QCOMPARE(restored->reminderOverrides.at(1).minutes, 1440);
+}
+
+void TestEvent::fromCborRejectsEntryMissingId()
+{
+    Event source = [] {
+        Event e;
+        e.id = QStringLiteral("x");
+        e.allDay = true;
+        e.startDate = QDate(2026, 8, 24);
+        e.endDate = QDate(2026, 8, 25);
+        return e;
+    }();
+    QCborMap map = source.toCbor();
+    map.remove(QStringLiteral("id"));
+    QVERIFY(!Event::fromCbor(map).has_value());
+}
+
+void TestEvent::fromCborRejectsEntryMissingDateFields()
+{
+    Event source;
+    source.id = QStringLiteral("x");
+    source.allDay = false; // needs a dateTime pair, which is absent
+    QVERIFY(!Event::fromCbor(source.toCbor()).has_value());
 }
 
 QTEST_APPLESS_MAIN(TestEvent)

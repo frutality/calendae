@@ -93,6 +93,8 @@ add_library(tgc_calendar STATIC
     src/calendar/monthkeys.cpp
     src/calendar/montheventstore.h
     src/calendar/montheventstore.cpp
+    src/calendar/eventcachestore.h
+    src/calendar/eventcachestore.cpp
     src/calendar/monthdaycellwidget.h
     src/calendar/monthdaycellwidget.cpp
     src/calendar/monthviewwidget.h

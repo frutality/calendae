@@ -151,8 +151,9 @@ void ReminderScheduler::onEventsFetched(quint64 requestId, const QString &calend
     rebuildTimers();
 }
 
-void ReminderScheduler::onEventsFetchFailed(quint64 requestId, const QString &calendarId, const QString &message)
+void ReminderScheduler::onEventsFetchFailed(quint64 requestId, const QString &calendarId, const QString &message, bool transient)
 {
+    Q_UNUSED(transient); // reminder fetches stay silent regardless of the failure kind
     if (m_latestRequestIdByCalendar.value(calendarId) != requestId)
         return;
     // A background reminder fetch failing must not nag the user; the next

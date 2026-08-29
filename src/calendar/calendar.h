@@ -1,6 +1,7 @@
 #ifndef CALENDAR_H
 #define CALENDAR_H
 
+#include <QCborMap>
 #include <QColor>
 #include <QList>
 #include <QString>
@@ -22,6 +23,13 @@ struct Calendar
     // GoogleCalendarApi::fetchCalendarList does not follow nextPageToken).
     // Returns std::nullopt on malformed JSON, with errorOut filled in.
     static std::optional<QList<Calendar>> listFromJson(const QByteArray &json, QString *errorOut = nullptr);
+
+    // Round-trips an already-parsed Calendar through CBOR so EventCacheStore
+    // can persist the last-known calendar list for an instant (offline)
+    // sidebar on the next cold start. fromCbor returns std::nullopt for an
+    // entry missing its id or summary, matching listFromJson's skip rule.
+    QCborMap toCbor() const;
+    static std::optional<Calendar> fromCbor(const QCborMap &map);
 };
 
 #endif // CALENDAR_H

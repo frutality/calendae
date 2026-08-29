@@ -1,5 +1,6 @@
 #include "montheventstore.h"
 
+#include "eventcachestore.h"
 #include "eventtimerange.h"
 #include "googlecalendarapi.h"
 #include "monthgrid.h"
@@ -17,9 +18,10 @@ Q_LOGGING_CATEGORY(lcStore, "tgc.eventstore")
 constexpr qint64 kBucketFreshnessMs = 5 * 60 * 1000;
 } // namespace
 
-MonthEventStore::MonthEventStore(GoogleCalendarApi *calendarApi, QObject *parent)
+MonthEventStore::MonthEventStore(GoogleCalendarApi *calendarApi, EventCacheStore *cache, QObject *parent)
     : QObject(parent)
     , m_calendarApi(calendarApi)
+    , m_cache(cache)
 {
     // Queued: GoogleCalendarApi::fetchEvents() emits eventsFetchFailed
     // synchronously in the not-signed-in case, which would otherwise land
@@ -38,6 +40,17 @@ bool MonthEventStore::bucketFresh(const Bucket &bucket) const
         && bucket.fetchedAt.msecsTo(QDateTime::currentDateTimeUtc()) < kBucketFreshnessMs;
 }
 
+bool MonthEventStore::bucketNeedsFetch(const Bucket &bucket) const
+{
+    if (bucket.state == State::InFlight)
+        return false;
+    // A disk-hydrated bucket is never trusted as fresh until its first
+    // server refresh this session — cold start always re-fetches.
+    if (bucket.fromDiskPendingRefresh)
+        return true;
+    return !bucketFresh(bucket);
+}
+
 void MonthEventStore::ensureMonths(const QList<QDate> &monthKeys, const QSet<QString> &calendarIds)
 {
     for (const QDate &rawMonth : monthKeys) {
@@ -45,12 +58,31 @@ void MonthEventStore::ensureMonths(const QList<QDate> &monthKeys, const QSet<QSt
         if (!month.isValid())
             continue;
         for (const QString &calendarId : calendarIds) {
-            const Bucket &bucket = m_buckets[month][calendarId];
-            if (bucket.state == State::InFlight || bucketFresh(bucket))
-                continue;
-            fetchBucket(month, calendarId);
+            if (m_buckets[month][calendarId].state == State::NotLoaded)
+                tryHydrateFromDisk(month, calendarId); // may emit bucketUpdated
+
+            if (bucketNeedsFetch(m_buckets[month][calendarId]))
+                fetchBucket(month, calendarId);
         }
     }
+}
+
+void MonthEventStore::tryHydrateFromDisk(const QDate &month, const QString &calendarId)
+{
+    if (!m_cache)
+        return;
+    const std::optional<EventCacheStore::CachedBucket> cached = m_cache->loadBucket(month, calendarId);
+    if (!cached)
+        return;
+
+    Bucket &bucket = m_buckets[month][calendarId];
+    bucket.state = State::Loaded;
+    bucket.events = cached->events;
+    bucket.fetchedAt = cached->fetchedAt.toUTC();
+    bucket.fromDiskPendingRefresh = true;
+    qCDebug(lcStore) << "bucket hydrated from disk" << month.toString(Qt::ISODate) << calendarId
+                     << cached->events.size() << "events";
+    emit bucketUpdated(month, calendarId);
 }
 
 void MonthEventStore::fetchBucket(const QDate &month, const QString &calendarId)
@@ -66,6 +98,8 @@ void MonthEventStore::fetchBucket(const QDate &month, const QString &calendarId)
     // is now superseded — forget its id so its reply is ignored.
     if (bucket.requestId != 0)
         m_bucketByRequestId.remove(bucket.requestId);
+    // Keep bucket.events as-is: a disk-hydrated or previously-loaded bucket
+    // keeps showing what it has while the refresh is in flight.
     bucket.state = State::InFlight;
     bucket.requestId = requestId;
     m_bucketByRequestId.insert(requestId, {month, calendarId});
@@ -85,11 +119,16 @@ void MonthEventStore::onEventsFetched(quint64 requestId, const QString &calendar
     qCDebug(lcStore) << "bucket loaded" << month.toString(Qt::ISODate) << calendarId << events.size() << "events";
     bucket.fetchedAt = QDateTime::currentDateTimeUtc();
     bucket.requestId = 0;
+    bucket.fromDiskPendingRefresh = false;
 
+    if (m_cache)
+        m_cache->storeBucket(month, calendarId, events);
+
+    emit bucketRefreshed(month, calendarId);
     emit bucketUpdated(month, calendarId);
 }
 
-void MonthEventStore::onEventsFetchFailed(quint64 requestId, const QString &calendarId, const QString &message)
+void MonthEventStore::onEventsFetchFailed(quint64 requestId, const QString &calendarId, const QString &message, bool transient)
 {
     const auto it = m_bucketByRequestId.constFind(requestId);
     if (it == m_bucketByRequestId.constEnd())
@@ -98,11 +137,23 @@ void MonthEventStore::onEventsFetchFailed(quint64 requestId, const QString &cale
     m_bucketByRequestId.erase(it);
 
     Bucket &bucket = m_buckets[month][calendarId];
-    bucket.state = State::Failed;
-    bucket.fetchedAt = QDateTime(); // not fresh — next ensureMonths() retries
     bucket.requestId = 0;
 
-    emit bucketFetchFailed(month, calendarId, message);
+    if (!bucket.events.isEmpty()) {
+        // Keep showing what we have (disk-hydrated or an earlier success).
+        // Stay Loaded, but mark for another try so the next navigation to
+        // this month re-attempts rather than trusting the TTL.
+        bucket.state = State::Loaded;
+        bucket.fromDiskPendingRefresh = true;
+        qCDebug(lcStore) << "bucket refresh failed, keeping stale data" << month.toString(Qt::ISODate)
+                         << calendarId << ":" << message;
+        emit bucketRefreshFailed(month, calendarId, message, transient);
+        return;
+    }
+
+    bucket.state = State::Failed;
+    bucket.fetchedAt = QDateTime(); // not fresh — next ensureMonths() retries
+    emit bucketFetchFailed(month, calendarId, message, transient);
 }
 
 bool MonthEventStore::monthsSettled(const QList<QDate> &monthKeys, const QSet<QString> &calendarIds) const
@@ -118,7 +169,12 @@ bool MonthEventStore::monthsSettled(const QList<QDate> &monthKeys, const QSet<QS
             const auto calIt = monthIt->constFind(calendarId);
             if (calIt == monthIt->constEnd())
                 return false;
-            if (calIt->state == State::NotLoaded || calIt->state == State::InFlight)
+            if (calIt->state == State::NotLoaded)
+                return false;
+            // In flight with nothing to show yet — still unsettled. In
+            // flight *over* existing events (a refresh) counts as settled:
+            // the view already has something.
+            if (calIt->state == State::InFlight && calIt->events.isEmpty())
                 return false;
         }
     }
@@ -135,7 +191,11 @@ QList<Event> MonthEventStore::eventsFor(const QString &calendarId, const QList<Q
         if (monthIt == m_buckets.constEnd())
             continue;
         const auto calIt = monthIt->constFind(calendarId);
-        if (calIt == monthIt->constEnd() || calIt->state != State::Loaded)
+        // Any bucket that has events is worth showing, even one currently
+        // refreshing (InFlight) or one that failed its last refresh but
+        // still holds disk-hydrated data. A bucket with no events (never
+        // loaded, or a hard failure) contributes nothing.
+        if (calIt == monthIt->constEnd() || calIt->events.isEmpty())
             continue;
         for (const Event &event : calIt->events) {
             if (seenIds.contains(event.id))
@@ -157,10 +217,14 @@ void MonthEventStore::invalidateCalendar(const QString &calendarId)
             m_bucketByRequestId.remove(calIt->requestId);
         monthIt->erase(calIt);
     }
+    if (m_cache)
+        m_cache->removeCalendar(calendarId);
 }
 
-void MonthEventStore::invalidateAll()
+void MonthEventStore::invalidateAll(bool alsoDisk)
 {
     m_buckets.clear();
     m_bucketByRequestId.clear();
+    if (alsoDisk && m_cache)
+        m_cache->removeAll();
 }

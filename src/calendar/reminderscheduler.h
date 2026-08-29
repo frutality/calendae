@@ -59,7 +59,7 @@ signals:
 
 private slots:
     void onEventsFetched(quint64 requestId, const QString &calendarId, const QList<Event> &events);
-    void onEventsFetchFailed(quint64 requestId, const QString &calendarId, const QString &message);
+    void onEventsFetchFailed(quint64 requestId, const QString &calendarId, const QString &message, bool transient);
 
 private:
     void startFetchCycle();

@@ -45,7 +45,7 @@ public:
 private slots:
     void onDisplayedMonthChanged(const QDate &firstOfMonth);
     void onBucketUpdated(const QDate &monthKey, const QString &calendarId);
-    void onBucketFetchFailed(const QDate &monthKey, const QString &calendarId, const QString &message);
+    void onBucketFetchFailed(const QDate &monthKey, const QString &calendarId, const QString &message, bool transient);
 
 private:
     bool ready() const;

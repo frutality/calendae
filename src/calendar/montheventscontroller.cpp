@@ -129,13 +129,19 @@ void MonthEventsController::onBucketUpdated(const QDate &monthKey, const QString
     maybeEmitCycleFinished();
 }
 
-void MonthEventsController::onBucketFetchFailed(const QDate &monthKey, const QString &calendarId, const QString &message)
+void MonthEventsController::onBucketFetchFailed(const QDate &monthKey, const QString &calendarId,
+                                                 const QString &message, bool transient)
 {
     if (!currentMonthKeys().contains(monthKey))
         return;
 
-    const QString calendarName = m_calendarsById.contains(calendarId) ? m_calendarsById.value(calendarId).summary : calendarId;
-    emit eventFetchFailed(tr("Could not load events for \"%1\": %2").arg(calendarName, message));
+    // A transient (offline) failure is reported once, globally, by the
+    // window's connectivity indicator — don't also raise a per-calendar
+    // "could not load" message for it.
+    if (!transient) {
+        const QString calendarName = m_calendarsById.contains(calendarId) ? m_calendarsById.value(calendarId).summary : calendarId;
+        emit eventFetchFailed(tr("Could not load events for \"%1\": %2").arg(calendarName, message));
+    }
 
     maybeEmitCycleFinished();
 }
