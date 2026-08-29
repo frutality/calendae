@@ -20,6 +20,7 @@ QT_END_NAMESPACE
 
 class CalendarSidebarWidget;
 class GoogleCalendarApi;
+class MonthEventStore;
 class MonthViewWidget;
 class MonthEventsController;
 class TimeGridViewWidget;
@@ -98,6 +99,7 @@ private:
     Ui::MainWindow *ui;
     AuthManager *m_authManager;
     GoogleCalendarApi *m_calendarApi;
+    MonthEventStore *m_monthEventStore; // shared month-granularity event cache behind the three views
     CalendarSidebarWidget *m_calendarSidebar;
 
     QStackedWidget *m_viewStack;

@@ -7,6 +7,7 @@
 #include "calendar/eventscontroller.h"
 #include "calendar/googlecalendarapi.h"
 #include "calendar/montheventscontroller.h"
+#include "calendar/montheventstore.h"
 #include "calendar/monthviewwidget.h"
 #include "calendar/reminderscheduler.h"
 #include "calendar/timegrideventscontroller.h"
@@ -72,9 +73,10 @@ void MainWindow::createWidgets()
     m_viewStack->addWidget(m_dayView);
 
     m_calendarApi = new GoogleCalendarApi(m_authManager, this);
-    m_monthEventsController = new MonthEventsController(m_authManager, m_calendarApi, m_monthView, this);
-    m_weekEventsController = new TimeGridEventsController(m_authManager, m_calendarApi, m_weekView, this);
-    m_dayEventsController = new TimeGridEventsController(m_authManager, m_calendarApi, m_dayView, this);
+    m_monthEventStore = new MonthEventStore(m_calendarApi, this);
+    m_monthEventsController = new MonthEventsController(m_authManager, m_monthEventStore, m_monthView, this);
+    m_weekEventsController = new TimeGridEventsController(m_authManager, m_monthEventStore, m_weekView, this);
+    m_dayEventsController = new TimeGridEventsController(m_authManager, m_monthEventStore, m_dayView, this);
     m_reminderScheduler = new ReminderScheduler(m_authManager, m_calendarApi, this);
     m_eventsControllers = {m_monthEventsController, m_weekEventsController, m_dayEventsController, m_reminderScheduler};
 
@@ -119,6 +121,7 @@ void MainWindow::connectAuth()
         connect(m_authManager, &AuthManager::signedOut, controller, &EventsController::clear);
     connect(m_authManager, &AuthManager::signedOut, this, [this] {
         m_calendars.clear();
+        m_monthEventStore->invalidateAll();
         m_monthControllerPopulated = false;
         m_weekControllerPopulated = false;
         m_dayControllerPopulated = false;
@@ -457,6 +460,9 @@ void MainWindow::openNewEventDialog(const QDate &date, const std::optional<QTime
             [this, &dialog, &pendingRequestId](quint64 requestId, const QString &calendarId) {
                 if (requestId != pendingRequestId)
                     return;
+                // Drop the shared cache for this calendar once, then let
+                // every controller re-pull the range it currently shows.
+                m_monthEventStore->invalidateCalendar(calendarId);
                 for (EventsController *controller : std::as_const(m_eventsControllers))
                     controller->refreshCalendar(calendarId);
                 dialog.accept();
@@ -535,6 +541,7 @@ void MainWindow::openEditEventDialog(const QString &calendarId, const QString &e
             [this, &dialog, &pendingRequestId](quint64 requestId, const QString &calendarId, const QString &) {
                 if (requestId != pendingRequestId)
                     return;
+                m_monthEventStore->invalidateCalendar(calendarId);
                 for (EventsController *controller : std::as_const(m_eventsControllers))
                     controller->refreshCalendar(calendarId);
                 dialog.accept();
@@ -567,6 +574,7 @@ void MainWindow::openEditEventDialog(const QString &calendarId, const QString &e
             [this, &dialog, &pendingDeleteRequestId](quint64 requestId, const QString &calendarId, const QString &) {
                 if (requestId != pendingDeleteRequestId)
                     return;
+                m_monthEventStore->invalidateCalendar(calendarId);
                 for (EventsController *controller : std::as_const(m_eventsControllers))
                     controller->refreshCalendar(calendarId);
                 dialog.done(EventDialog::DeletedResult);

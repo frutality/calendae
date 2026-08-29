@@ -13,19 +13,21 @@
 #include <optional>
 
 class AuthManager;
-class GoogleCalendarApi;
+class MonthEventStore;
 class TimeGridViewWidget;
 
-// Same role as MonthEventsController, but for the week/day time-grid view:
-// coordinates fetching enabled calendars' events for the view's currently
-// displayed dayCount-day range (7 for week, 1 for day) instead of a 42-day
-// month grid. One instance per view (week and day each get their own,
-// since each view's navigation/cache is independent).
+// Same role as MonthEventsController, for the week/day time-grid view: keeps
+// the shared MonthEventStore loaded for whichever calendar month(s) the
+// view's dayCount-day range touches (one month usually, two when the range
+// straddles a month boundary) and renders from the store's cache. The store
+// owns all fetching and staleness handling; a week or day inside an
+// already-loaded month costs no network round-trip. One instance per view
+// (week and day navigate independently).
 class TimeGridEventsController : public EventsController
 {
     Q_OBJECT
 public:
-    explicit TimeGridEventsController(AuthManager *authManager, GoogleCalendarApi *calendarApi,
+    explicit TimeGridEventsController(AuthManager *authManager, MonthEventStore *store,
                                        TimeGridViewWidget *view, QObject *parent = nullptr);
 
 public slots:
@@ -39,24 +41,22 @@ public:
 
 private slots:
     void onDisplayedRangeChanged(const QDate &rangeStart);
-    void onEventsFetched(quint64 requestId, const QString &calendarId, const QList<Event> &events);
-    void onEventsFetchFailed(quint64 requestId, const QString &calendarId, const QString &message);
+    void onBucketUpdated(const QDate &monthKey, const QString &calendarId);
+    void onBucketFetchFailed(const QDate &monthKey, const QString &calendarId, const QString &message);
 
 private:
-    void startFetchCycleForCurrentRange();
-    void fetchForCalendar(const QString &calendarId);
+    bool ready() const;
+    QList<QDate> currentMonthKeys() const; // month(s) the visible range touches
+    void reloadCurrentRange();
+    void renderCalendarFromCache(const QString &calendarId);
+    void maybeEmitCycleFinished();
 
     AuthManager *m_authManager;
-    GoogleCalendarApi *m_calendarApi;
+    MonthEventStore *m_store;
     TimeGridViewWidget *m_view;
 
     QHash<QString, Calendar> m_calendarsById;
     QSet<QString> m_enabledCalendarIds;
-
-    QDate m_cachedRangeStart; // invalid initially
-    QHash<QString, QList<Event>> m_cachedEventsByCalendar; // for m_cachedRangeStart ONLY
-
-    QSet<quint64> m_activeRequestIds;
 };
 
 #endif // TIMEGRIDEVENTSCONTROLLER_H

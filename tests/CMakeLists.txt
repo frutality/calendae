@@ -8,6 +8,8 @@ set(TGC_TEST_NAMES
     test_calendar
     test_googlecalendarapi
     test_monthgrid
+    test_monthkeys
+    test_montheventstore
     test_event
     test_eventtimerange
     test_timegridrange

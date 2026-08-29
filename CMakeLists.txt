@@ -89,6 +89,10 @@ add_library(tgc_calendar STATIC
     src/calendar/calendarsidebarwidget.ui
     src/calendar/monthgrid.h
     src/calendar/monthgrid.cpp
+    src/calendar/monthkeys.h
+    src/calendar/monthkeys.cpp
+    src/calendar/montheventstore.h
+    src/calendar/montheventstore.cpp
     src/calendar/monthdaycellwidget.h
     src/calendar/monthdaycellwidget.cpp
     src/calendar/monthviewwidget.h

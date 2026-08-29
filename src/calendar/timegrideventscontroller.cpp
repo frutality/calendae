@@ -2,23 +2,35 @@
 
 #include "auth/authmanager.h"
 #include "eventgrouping.h"
-#include "eventtimerange.h"
-#include "googlecalendarapi.h"
-#include "timegridrange.h"
+#include "montheventstore.h"
+#include "monthkeys.h"
 #include "timegridviewwidget.h"
 
 #include <utility>
 
-TimeGridEventsController::TimeGridEventsController(AuthManager *authManager, GoogleCalendarApi *calendarApi,
+TimeGridEventsController::TimeGridEventsController(AuthManager *authManager, MonthEventStore *store,
                                                      TimeGridViewWidget *view, QObject *parent)
     : EventsController(parent)
     , m_authManager(authManager)
-    , m_calendarApi(calendarApi)
+    , m_store(store)
     , m_view(view)
 {
     connect(m_view, &TimeGridViewWidget::displayedRangeChanged, this, &TimeGridEventsController::onDisplayedRangeChanged);
-    connect(m_calendarApi, &GoogleCalendarApi::eventsFetched, this, &TimeGridEventsController::onEventsFetched);
-    connect(m_calendarApi, &GoogleCalendarApi::eventsFetchFailed, this, &TimeGridEventsController::onEventsFetchFailed);
+    connect(m_store, &MonthEventStore::bucketUpdated, this, &TimeGridEventsController::onBucketUpdated);
+    connect(m_store, &MonthEventStore::bucketFetchFailed, this, &TimeGridEventsController::onBucketFetchFailed);
+}
+
+bool TimeGridEventsController::ready() const
+{
+    return m_authManager->state() == AuthManager::AuthState::SignedIn && !m_calendarsById.isEmpty();
+}
+
+QList<QDate> TimeGridEventsController::currentMonthKeys() const
+{
+    const QDate start = m_view->rangeStart();
+    if (!start.isValid())
+        return {};
+    return MonthKeys::forDateRange(start, start.addDays(m_view->dayCount() - 1));
 }
 
 void TimeGridEventsController::setCalendars(const QList<Calendar> &calendars)
@@ -30,7 +42,7 @@ void TimeGridEventsController::setCalendars(const QList<Calendar> &calendars)
             m_enabledCalendarIds.insert(calendar.id);
     }
 
-    startFetchCycleForCurrentRange();
+    reloadCurrentRange();
 }
 
 void TimeGridEventsController::setCalendarEnabled(const QString &calendarId, bool enabled)
@@ -40,44 +52,38 @@ void TimeGridEventsController::setCalendarEnabled(const QString &calendarId, boo
 
     if (enabled) {
         m_enabledCalendarIds.insert(calendarId);
-        if (m_cachedEventsByCalendar.contains(calendarId))
-            m_view->setEventsForCalendar(calendarId, EventGrouping::groupByDate(m_cachedEventsByCalendar.value(calendarId), m_calendarsById));
-        else if (m_cachedRangeStart.isValid())
-            fetchForCalendar(calendarId);
+        if (ready()) {
+            m_store->ensureMonths(currentMonthKeys(), {calendarId});
+            renderCalendarFromCache(calendarId);
+        }
     } else {
         m_enabledCalendarIds.remove(calendarId);
         m_view->clearEventsForCalendar(calendarId);
     }
+    maybeEmitCycleFinished();
 }
 
 void TimeGridEventsController::clear()
 {
     m_calendarsById.clear();
     m_enabledCalendarIds.clear();
-    m_cachedRangeStart = QDate();
-    m_cachedEventsByCalendar.clear();
-    m_activeRequestIds.clear();
     m_view->clearAllEvents();
 }
 
 void TimeGridEventsController::refreshCalendar(const QString &calendarId)
 {
-    if (!m_calendarsById.contains(calendarId))
+    if (!m_calendarsById.contains(calendarId) || !ready())
         return;
-    if (!m_cachedRangeStart.isValid())
-        return; // no range loaded yet (e.g. not signed in)
 
-    m_cachedEventsByCalendar.remove(calendarId);
-    if (m_enabledCalendarIds.contains(calendarId))
-        fetchForCalendar(calendarId); // new requestId, tracked in m_activeRequestIds like any other fetch
+    // The store bucket was just dropped by the caller; re-fetch it. The
+    // currently-shown (now stale) events stay on screen until the reply
+    // lands via onBucketUpdated() — no blank flash on save.
+    m_store->ensureMonths(currentMonthKeys(), {calendarId});
 }
 
 std::optional<Event> TimeGridEventsController::findCachedEvent(const QString &calendarId, const QString &eventId) const
 {
-    const auto it = m_cachedEventsByCalendar.constFind(calendarId);
-    if (it == m_cachedEventsByCalendar.constEnd())
-        return std::nullopt;
-    for (const Event &event : it.value()) {
+    for (const Event &event : m_store->eventsFor(calendarId, currentMonthKeys())) {
         if (event.id == eventId)
             return event;
     }
@@ -87,55 +93,50 @@ std::optional<Event> TimeGridEventsController::findCachedEvent(const QString &ca
 void TimeGridEventsController::onDisplayedRangeChanged(const QDate &rangeStart)
 {
     Q_UNUSED(rangeStart);
-    startFetchCycleForCurrentRange();
+    reloadCurrentRange();
 }
 
-void TimeGridEventsController::startFetchCycleForCurrentRange()
+void TimeGridEventsController::reloadCurrentRange()
 {
-    if (m_authManager->state() != AuthManager::AuthState::SignedIn)
-        return;
-    if (m_calendarsById.isEmpty())
+    if (!ready())
         return;
 
-    m_cachedRangeStart = m_view->rangeStart();
-    m_cachedEventsByCalendar.clear();
-    m_activeRequestIds.clear();
     m_view->clearAllEvents();
-
+    m_store->ensureMonths(currentMonthKeys(), m_enabledCalendarIds);
     for (const QString &calendarId : std::as_const(m_enabledCalendarIds))
-        fetchForCalendar(calendarId);
+        renderCalendarFromCache(calendarId);
+    maybeEmitCycleFinished();
 }
 
-void TimeGridEventsController::fetchForCalendar(const QString &calendarId)
+void TimeGridEventsController::renderCalendarFromCache(const QString &calendarId)
 {
-    const QList<QDate> dates = TimeGridRange::datesForRange(m_cachedRangeStart, m_view->dayCount());
-    const EventTimeRange::Range range = EventTimeRange::forDates(dates);
-
-    const quint64 requestId = m_calendarApi->fetchEvents(calendarId, range.timeMin, range.timeMax);
-    m_activeRequestIds.insert(requestId);
+    if (!m_enabledCalendarIds.contains(calendarId))
+        return;
+    const QList<Event> events = m_store->eventsFor(calendarId, currentMonthKeys());
+    m_view->setEventsForCalendar(calendarId, EventGrouping::groupByDate(events, m_calendarsById));
 }
 
-void TimeGridEventsController::onEventsFetched(quint64 requestId, const QString &calendarId, const QList<Event> &events)
+void TimeGridEventsController::maybeEmitCycleFinished()
 {
-    if (!m_activeRequestIds.remove(requestId))
-        return; // stale reply — discard
-
-    m_cachedEventsByCalendar.insert(calendarId, events);
-    if (m_enabledCalendarIds.contains(calendarId))
-        m_view->setEventsForCalendar(calendarId, EventGrouping::groupByDate(events, m_calendarsById));
-
-    if (m_activeRequestIds.isEmpty())
+    if (m_store->monthsSettled(currentMonthKeys(), m_enabledCalendarIds))
         emit fetchCycleFinished();
 }
 
-void TimeGridEventsController::onEventsFetchFailed(quint64 requestId, const QString &calendarId, const QString &message)
+void TimeGridEventsController::onBucketUpdated(const QDate &monthKey, const QString &calendarId)
 {
-    if (!m_activeRequestIds.remove(requestId))
-        return; // stale reply — discard
+    if (!currentMonthKeys().contains(monthKey))
+        return; // navigated away since this fetch started
+    renderCalendarFromCache(calendarId); // no-op if that calendar is disabled
+    maybeEmitCycleFinished();
+}
+
+void TimeGridEventsController::onBucketFetchFailed(const QDate &monthKey, const QString &calendarId, const QString &message)
+{
+    if (!currentMonthKeys().contains(monthKey))
+        return;
 
     const QString calendarName = m_calendarsById.contains(calendarId) ? m_calendarsById.value(calendarId).summary : calendarId;
     emit eventFetchFailed(tr("Could not load events for \"%1\": %2").arg(calendarName, message));
 
-    if (m_activeRequestIds.isEmpty())
-        emit fetchCycleFinished();
+    maybeEmitCycleFinished();
 }

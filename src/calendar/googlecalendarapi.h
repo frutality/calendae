@@ -56,7 +56,9 @@ public slots:
     // views); caller-local counters would collide (two controllers both
     // handing out "1") and cause one controller's reply to be mistakenly
     // consumed by another's identically-numbered in-flight request.
-    quint64 fetchEvents(const QString &calendarId, const QString &timeMinRfc3339, const QString &timeMaxRfc3339);
+    // virtual purely so unit tests can substitute a recording double for
+    // the store/controllers without real network I/O.
+    virtual quint64 fetchEvents(const QString &calendarId, const QString &timeMinRfc3339, const QString &timeMaxRfc3339);
 
     // requestId is opaque, echoed back unchanged in eventCreated/eventCreateFailed.
     void createEvent(quint64 requestId, const NewEventRequest &request);

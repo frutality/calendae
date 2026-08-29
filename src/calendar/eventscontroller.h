@@ -34,9 +34,13 @@ public slots:
     // Sign-out: drop all state, blank the view.
     virtual void clear() = 0;
 
-    // Forces a single calendar's cached events for the current range to be
-    // discarded and (if enabled) re-fetched. No-op if no range is loaded or
-    // calendarId is unknown.
+    // Brings a single calendar's events for the current range back in sync
+    // after an out-of-band mutation (event create / update / delete). The
+    // view controllers share one MonthEventStore, so the caller is expected
+    // to drop that calendar's cached buckets (MonthEventStore::
+    // invalidateCalendar) once before fanning this out to every controller;
+    // ReminderScheduler manages its own cache and needs no such call. No-op
+    // if calendarId is unknown or nothing is loaded yet.
     virtual void refreshCalendar(const QString &calendarId) = 0;
 
 public:
@@ -47,9 +51,11 @@ public:
 signals:
     void eventFetchFailed(const QString &message); // already staleness-filtered
 
-    // Emitted once every in-flight request of the current fetch cycle has
-    // completed (success or failure) — i.e. the view's content has settled
-    // to its final, real-data state. Used by MainWindow to know when it's
+    // Emitted once the current fetch cycle has settled — every request that
+    // was started has completed (success or failure), or the cache already
+    // held everything and nothing was requested (in which case this fires
+    // synchronously). I.e. the view's content is now at its final,
+    // real-data state. Used by MainWindow to know when it's
     // safe to (re-)apply a saved scroll position: right after startup, a
     // view's scrollable content can still be its empty/placeholder size
     // (month view's day cells only grow once real events load — unlike

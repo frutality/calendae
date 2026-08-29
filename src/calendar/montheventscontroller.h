@@ -13,22 +13,20 @@
 #include <optional>
 
 class AuthManager;
-class GoogleCalendarApi;
+class MonthEventStore;
 class MonthViewWidget;
-struct MonthDayEventItem;
 
-// Owns which calendars are enabled and coordinates fetching their events
-// for the month view's currently displayed 42-day grid: fans out one
-// events.list request per enabled calendar, discards stale replies (a
-// slow reply arriving after month navigation, sign-out, or the calendar
-// being deselected before it landed), and caches one month's worth of
-// per-calendar results so toggling a calendar's visibility doesn't
-// require a network round-trip.
+// Owns which calendars are enabled for the month view and turns the shared
+// MonthEventStore's cached events into the 42-day grid's per-calendar
+// display lists. Holds no events or fetch bookkeeping of its own — the
+// store fans out the events.list requests, deduplicates late replies, and
+// caches by (month, calendar); this class just asks it to keep the visible
+// month loaded and re-renders whenever a bucket lands.
 class MonthEventsController : public EventsController
 {
     Q_OBJECT
 public:
-    explicit MonthEventsController(AuthManager *authManager, GoogleCalendarApi *calendarApi,
+    explicit MonthEventsController(AuthManager *authManager, MonthEventStore *store,
                                     MonthViewWidget *monthView, QObject *parent = nullptr);
 
 public slots:
@@ -36,48 +34,37 @@ public slots:
     void setCalendarEnabled(const QString &calendarId, bool enabled) override;
     void clear() override;
 
-    // For use after an out-of-band mutation (e.g. event creation) that the
-    // normal enable/disable/navigate flows don't cover. If the calendar is
-    // currently disabled, only the cache is dropped — disabled calendars'
-    // events are never shown, and a stale cache entry self-corrects on next
-    // enable. No-op if no month is currently loaded or calendarId is unknown.
+    // The store bucket for calendarId is expected to have already been
+    // dropped (MonthEventStore::invalidateCalendar) by the caller before
+    // this fan-out; this just re-ensures and re-renders the visible month.
     void refreshCalendar(const QString &calendarId) override;
 
 public:
-    // Same data backing the visible grid — used to prefill an edit dialog
-    // without a network round-trip. Returns std::nullopt if calendarId/
-    // eventId isn't in the cache (e.g. a stale pill click racing a calendar
-    // being disabled or the month changing) — callers must treat this
-    // defensively.
     std::optional<Event> findCachedEvent(const QString &calendarId, const QString &eventId) const override;
 
 private slots:
     void onDisplayedMonthChanged(const QDate &firstOfMonth);
-    void onEventsFetched(quint64 requestId, const QString &calendarId, const QList<Event> &events);
-    void onEventsFetchFailed(quint64 requestId, const QString &calendarId, const QString &message);
+    void onBucketUpdated(const QDate &monthKey, const QString &calendarId);
+    void onBucketFetchFailed(const QDate &monthKey, const QString &calendarId, const QString &message);
 
 private:
-    void startFetchCycleForCurrentMonth();
-    void fetchForCalendar(const QString &calendarId);
+    bool ready() const;
+    // Just the displayed month, NOT every month the 42-day grid touches:
+    // the store fetches each month bucket over that month's full 42-day
+    // grid range, so one bucket already covers the grid's leading/trailing
+    // adjacent-month days. Spanning it across 3 months here would triple the
+    // cold month-view load.
+    QList<QDate> currentMonthKeys() const;
+    void reloadCurrentMonth();
+    void renderCalendarFromCache(const QString &calendarId);
+    void maybeEmitCycleFinished();
 
     AuthManager *m_authManager;
-    GoogleCalendarApi *m_calendarApi;
+    MonthEventStore *m_store;
     MonthViewWidget *m_monthView;
 
     QHash<QString, Calendar> m_calendarsById;
     QSet<QString> m_enabledCalendarIds;
-
-    QDate m_cachedMonthKey; // invalid initially
-    // Cached events, with display fields already localized (.toLocalTime())
-    // at grouping time, for m_cachedMonthKey ONLY. Deliberately NOT
-    // recomputed on a live system-timezone change mid-session (e.g. a
-    // laptop traveling while the app stays open on the same month) — Qt has
-    // no portable cross-platform "timezone changed" signal, and any
-    // navigation/refresh self-corrects it immediately, so watching for this
-    // rare case was judged not worth the added complexity.
-    QHash<QString, QList<Event>> m_cachedEventsByCalendar;
-
-    QSet<quint64> m_activeRequestIds;
 };
 
 #endif // MONTHEVENTSCONTROLLER_H
