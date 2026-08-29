@@ -18,6 +18,12 @@ class MonthDayCellWidget : public QWidget
 {
     Q_OBJECT
 public:
+    // Below this width per column the month grid stops shrinking its cells
+    // and the enclosing scroll area shows a horizontal scrollbar instead,
+    // so event text stays readable (by scrolling) on a narrow window while
+    // a wide window still divides the row into 7 equal, larger columns.
+    static constexpr int kMinContentWidth = 120;
+
     explicit MonthDayCellWidget(QWidget *parent = nullptr);
 
     void setDate(const QDate &date);
@@ -27,12 +33,13 @@ public:
     void setIsToday(bool isToday);
     void setSelected(bool selected);
 
-    // Grows with the number of stacked event pills, floored at the empty-
-    // cell baseline (80x60) -- deliberately NOT a fixed setMinimumSize(),
-    // which would make the parent grid layout ignore how tall a busy day
-    // actually needs to be (Qt's qSmartMinSize() takes an explicit
-    // minimumSize() verbatim, bypassing minimumSizeHint()/the layout's own
-    // computed minimum entirely).
+    // Width is a fixed floor (kMinContentWidth), content-independent, so all
+    // 7 grid columns stay equal; height grows with the number of stacked
+    // event pills, floored at a baseline -- deliberately NOT a fixed
+    // setMinimumSize(), which would make the parent grid layout ignore how
+    // tall a busy day actually needs to be (Qt's qSmartMinSize() takes an
+    // explicit minimumSize() verbatim, bypassing minimumSizeHint()/the
+    // layout's own computed minimum entirely).
     QSize minimumSizeHint() const override;
 
 public slots:

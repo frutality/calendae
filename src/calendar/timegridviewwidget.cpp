@@ -10,7 +10,9 @@
 #include <QLocale>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSizePolicy>
 #include <QSpacerItem>
+#include <QStyle>
 #include <QTimer>
 #include <QToolButton>
 #include <algorithm>
@@ -22,25 +24,41 @@ TimeGridViewWidget::TimeGridViewWidget(int dayCount, QWidget *parent)
 {
     ui->setupUi(this);
 
+    // The header row, the all-day strip and the scrollable grid are three
+    // separate QHBoxLayouts; their columns line up only if all three use
+    // the same gutter width (TimeGridHourGutterWidget::kWidth), zero
+    // inter-item spacing, equal per-column stretch, content-independent
+    // column minimums (see the header buttons and
+    // TimeGridAllDayCellWidget::minimumSizeHint()) and the same reserved
+    // width on the right where the grid's vertical scrollbar sits (forced
+    // always-on below, matched by kScrollGutter spacers here).
+    const int scrollBarExtent = style()->pixelMetric(QStyle::PM_ScrollBarExtent);
+
     // Header row: gutter spacer + one clickable day-name/day-number button
-    // per column, column-aligned with the all-day row and scroll area below
-    // via matching gutter width and equal stretch factors.
+    // per column + trailing scrollbar-gutter spacer.
     auto *headerLayout = new QHBoxLayout;
     headerLayout->setContentsMargins(0, 0, 0, 0);
+    headerLayout->setSpacing(0);
     headerLayout->addSpacerItem(new QSpacerItem(TimeGridHourGutterWidget::kWidth, 0, QSizePolicy::Fixed, QSizePolicy::Minimum));
     m_headerButtons.reserve(m_dayCount);
     for (int i = 0; i < m_dayCount; ++i) {
         auto *button = new QToolButton(this);
         button->setAutoRaise(true);
+        // Ignored width: the button's text length must not skew the column
+        // widths (they have to match the day columns in the grid below).
+        button->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         connect(button, &QToolButton::clicked, this, [this, i] { onColumnClicked(m_rangeStart.addDays(i)); });
         headerLayout->addWidget(button, 1);
         m_headerButtons.append(button);
     }
+    headerLayout->addSpacerItem(new QSpacerItem(scrollBarExtent, 0, QSizePolicy::Fixed, QSizePolicy::Minimum));
     ui->verticalLayout->addLayout(headerLayout);
 
-    // All-day row: same gutter width, one cell per column.
+    // All-day row: same gutter width, one cell per column, same trailing
+    // scrollbar-gutter spacer.
     auto *allDayLayout = new QHBoxLayout;
     allDayLayout->setContentsMargins(0, 0, 0, 0);
+    allDayLayout->setSpacing(0);
     allDayLayout->addSpacerItem(new QSpacerItem(TimeGridHourGutterWidget::kWidth, 0, QSizePolicy::Fixed, QSizePolicy::Minimum));
     m_allDayCells.reserve(m_dayCount);
     for (int i = 0; i < m_dayCount; ++i) {
@@ -51,6 +69,7 @@ TimeGridViewWidget::TimeGridViewWidget(int dayCount, QWidget *parent)
         allDayLayout->addWidget(cell, 1);
         m_allDayCells.append(cell);
     }
+    allDayLayout->addSpacerItem(new QSpacerItem(scrollBarExtent, 0, QSizePolicy::Fixed, QSizePolicy::Minimum));
     ui->verticalLayout->addLayout(allDayLayout);
 
     // Scrollable half-hour grid: hour gutter + one day column per column.
@@ -58,6 +77,11 @@ TimeGridViewWidget::TimeGridViewWidget(int dayCount, QWidget *parent)
     m_scrollArea->setWidgetResizable(true);
     m_scrollArea->setFrameShape(QFrame::NoFrame);
     m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    // Always-on so the reserved width on the right is constant and the
+    // grid columns stay aligned with the header / all-day columns above
+    // (the grid is a fixed 24h tall, so it needs the scrollbar in any
+    // realistic window height anyway).
+    m_scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
 
     auto *gridHost = new QWidget;
     auto *gridLayout = new QHBoxLayout(gridHost);

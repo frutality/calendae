@@ -30,7 +30,16 @@ MonthDayCellWidget::MonthDayCellWidget(QWidget *parent)
 
 QSize MonthDayCellWidget::minimumSizeHint() const
 {
-    return layout()->minimumSize().expandedTo(QSize(80, 60));
+    // Width is deliberately a fixed floor, NOT taken from the layout: the
+    // event pills must never widen a cell (see EventPillLabel's ctor), so
+    // that all 7 grid columns stay equal-width and content-independent —
+    // the equal column stretch factors then divide the row evenly. On a
+    // window too narrow to give every column this floor, the grid keeps the
+    // floor and its scroll area shows a horizontal scrollbar rather than
+    // crushing the cells. Height still comes from the layout so a day with
+    // many stacked pills grows taller (see the header-file note on why this
+    // isn't a fixed setMinimumSize()).
+    return QSize(kMinContentWidth, qMax(layout()->minimumSize().height(), 60));
 }
 
 void MonthDayCellWidget::setDate(const QDate &date)

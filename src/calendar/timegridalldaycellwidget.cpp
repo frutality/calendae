@@ -20,10 +20,13 @@ TimeGridAllDayCellWidget::TimeGridAllDayCellWidget(QWidget *parent)
 
 QSize TimeGridAllDayCellWidget::minimumSizeHint() const
 {
-    // Same reasoning as MonthDayCellWidget::minimumSizeHint(): report the
-    // layout's real minimum (grows with stacked pills) rather than a fixed
-    // size, so the parent row can size itself to the busiest day.
-    return layout()->minimumSize().expandedTo(QSize(20, 4));
+    // Width is a fixed floor, NOT taken from the layout: an all-day pill
+    // must never widen its cell (see EventPillLabel's ctor), otherwise this
+    // day's column stops matching the timed-grid column directly below it
+    // and the all-day strip visibly drifts out of alignment. Height still
+    // comes from the layout so the strip grows to fit the busiest day's
+    // stack of pills.
+    return QSize(20, qMax(layout()->minimumSize().height(), 4));
 }
 
 void TimeGridAllDayCellWidget::setDate(const QDate &date)

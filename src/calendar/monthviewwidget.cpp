@@ -16,6 +16,11 @@ MonthViewWidget::MonthViewWidget(QWidget *parent)
 {
     ui->setupUi(this);
 
+    // Horizontal scrollbar is left on AsNeeded (the .ui default): a window
+    // wide enough for 7 columns of at least MonthDayCellWidget::
+    // kMinContentWidth divides the row into 7 equal columns with no
+    // scrollbar; a narrower window keeps that per-column floor and scrolls
+    // horizontally instead of crushing the cells to unreadable slivers.
     buildWeekdayHeader();
 
     m_cells.reserve(42);
