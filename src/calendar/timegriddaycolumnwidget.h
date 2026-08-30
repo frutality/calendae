@@ -55,11 +55,17 @@ protected:
 private:
     void relayoutEvents();
     QDateTime slotStartForY(int y) const;
+    int nowLineY() const;
+    void updateNowLineOverlay();
 
     QDate m_date;
     bool m_isToday = false;
     QList<MonthDayEventItem> m_events;
     QList<QWidget *> m_eventWidgets; // EventPillLabel*, absolutely positioned
+    // Draws the current-time indicator. A separate top-most child rather
+    // than part of paintEvent() so the line stays visible over event pills
+    // (which are child widgets and would otherwise paint on top of it).
+    QWidget *m_nowLineOverlay = nullptr;
 };
 
 #endif // TIMEGRIDDAYCOLUMNWIDGET_H

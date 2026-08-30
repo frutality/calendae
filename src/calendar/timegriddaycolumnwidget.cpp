@@ -50,6 +50,40 @@ void assignColumnsForCluster(QList<LayoutItem> &items, int begin, int end)
         items[i].columnCount = columnEnds.size();
 }
 
+// Top-most sibling of the event pills that paints nothing but the
+// current-time line, so it can't be occluded by a pill sitting under it.
+class NowLineOverlay : public QWidget
+{
+public:
+    explicit NowLineOverlay(QWidget *parent)
+        : QWidget(parent)
+    {
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setAttribute(Qt::WA_NoSystemBackground);
+    }
+
+    void setLineY(int y)
+    {
+        if (m_lineY == y)
+            return;
+        m_lineY = y;
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter painter(this);
+        QPen pen(QColor(220, 40, 40));
+        pen.setWidth(2);
+        painter.setPen(pen);
+        painter.drawLine(0, m_lineY, width(), m_lineY);
+    }
+
+private:
+    int m_lineY = 0;
+};
+
 } // namespace
 
 TimeGridDayColumnWidget::TimeGridDayColumnWidget(QWidget *parent)
@@ -57,6 +91,9 @@ TimeGridDayColumnWidget::TimeGridDayColumnWidget(QWidget *parent)
 {
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     setFixedHeight(kDayHeight);
+
+    m_nowLineOverlay = new NowLineOverlay(this);
+    m_nowLineOverlay->hide();
 }
 
 void TimeGridDayColumnWidget::setDate(const QDate &date)
@@ -73,6 +110,7 @@ void TimeGridDayColumnWidget::setIsToday(bool isToday)
         return;
     m_isToday = isToday;
     update();
+    updateNowLineOverlay();
 }
 
 void TimeGridDayColumnWidget::setEvents(const QList<MonthDayEventItem> &events)
@@ -84,7 +122,25 @@ void TimeGridDayColumnWidget::setEvents(const QList<MonthDayEventItem> &events)
 void TimeGridDayColumnWidget::refreshNowLine()
 {
     if (m_isToday)
-        update();
+        updateNowLineOverlay();
+}
+
+int TimeGridDayColumnWidget::nowLineY() const
+{
+    const QTime now = QTime::currentTime();
+    return qRound((now.hour() * 60 + now.minute()) * (kSlotHeight / 30.0));
+}
+
+void TimeGridDayColumnWidget::updateNowLineOverlay()
+{
+    if (!m_isToday) {
+        m_nowLineOverlay->hide();
+        return;
+    }
+    m_nowLineOverlay->setGeometry(0, 0, width(), height());
+    static_cast<NowLineOverlay *>(m_nowLineOverlay)->setLineY(nowLineY());
+    m_nowLineOverlay->show();
+    m_nowLineOverlay->raise(); // stay above event pills added after it
 }
 
 void TimeGridDayColumnWidget::relayoutEvents()
@@ -181,6 +237,8 @@ void TimeGridDayColumnWidget::relayoutEvents()
         pill->show();
         m_eventWidgets.append(pill);
     }
+
+    updateNowLineOverlay(); // re-raise above the pills just created
 }
 
 QDateTime TimeGridDayColumnWidget::slotStartForY(int y) const
@@ -213,14 +271,8 @@ void TimeGridDayColumnWidget::paintEvent(QPaintEvent *event)
         painter.drawLine(0, y, width(), y);
     }
 
-    if (m_isToday) {
-        const QTime now = QTime::currentTime();
-        const int y = qRound((now.hour() * 60 + now.minute()) * (kSlotHeight / 30.0));
-        QPen pen(QColor(220, 40, 40));
-        pen.setWidth(2);
-        painter.setPen(pen);
-        painter.drawLine(0, y, width(), y);
-    }
+    // The current-time line is painted by m_nowLineOverlay, not here, so it
+    // renders on top of the event pills instead of behind them.
 }
 
 void TimeGridDayColumnWidget::mousePressEvent(QMouseEvent *event)
@@ -249,4 +301,6 @@ void TimeGridDayColumnWidget::resizeEvent(QResizeEvent *event)
     // rebuilding — a full reposition/re-elide on every resize is safe here.
     if (!m_eventWidgets.isEmpty())
         relayoutEvents();
+    else
+        updateNowLineOverlay();
 }
