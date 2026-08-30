@@ -5,6 +5,8 @@
 #include <QFontMetrics>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QPaintEvent>
+#include <QPainter>
 #include <QResizeEvent>
 #include <QSizePolicy>
 #include <QVBoxLayout>
@@ -100,6 +102,39 @@ void MonthDayCellWidget::mouseDoubleClickEvent(QMouseEvent *event)
     }
 }
 
+void MonthDayCellWidget::paintEvent(QPaintEvent *event)
+{
+    QWidget::paintEvent(event);
+
+    // All state backgrounds are painted here rather than via setStyleSheet():
+    // a plain QWidget subclass needs Qt::WA_StyledBackground for a stylesheet
+    // "background-color" to render at all, and even with it a translucent wash
+    // on top of the (highlight-coloured) selection fill would be invisible.
+    //
+    // So the two cues are kept visually independent, and both show at once
+    // (today is the selected day on every fresh launch):
+    //   - today    -> a translucent highlight wash, matching the week view
+    //                 (TimeGridDayColumnWidget::paintEvent).
+    //   - selected -> a 2px highlight outline.
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+    const QColor highlight = palette().color(QPalette::Highlight);
+
+    if (m_isToday) {
+        QColor wash = highlight;
+        wash.setAlpha(45);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(wash);
+        painter.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 4, 4);
+    }
+
+    if (m_selected) {
+        painter.setPen(QPen(highlight, 2));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 4, 4);
+    }
+}
+
 void MonthDayCellWidget::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
@@ -175,16 +210,15 @@ void MonthDayCellWidget::updateVisualState()
 {
     m_dayNumberLabel->setText(m_date.isValid() ? QString::number(m_date.day()) : QString());
 
-    if (m_selected) {
-        setStyleSheet(QStringLiteral("MonthDayCellWidget { background-color: palette(highlight); border-radius: 4px; }"));
-        m_dayNumberLabel->setStyleSheet(QStringLiteral("color: palette(highlighted-text); font-weight: bold;"));
-    } else if (m_isToday) {
-        setStyleSheet(QStringLiteral("MonthDayCellWidget { border: 2px solid palette(highlight); border-radius: 4px; }"));
+    // The selected / today backgrounds are drawn in paintEvent(); here we only
+    // set the day-number emphasis. Bold marks both selected and today.
+    if (m_selected || m_isToday) {
         m_dayNumberLabel->setStyleSheet(m_inCurrentMonth
             ? QStringLiteral("font-weight: bold;")
             : QStringLiteral("color: palette(mid); font-weight: bold;"));
     } else {
-        setStyleSheet(QString());
         m_dayNumberLabel->setStyleSheet(m_inCurrentMonth ? QString() : QStringLiteral("color: palette(mid);"));
     }
+
+    update();
 }

@@ -51,6 +51,7 @@ signals:
     void eventEditRequested(const QString &calendarId, const QString &eventId);
 
 protected:
+    void paintEvent(QPaintEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
