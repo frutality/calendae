@@ -29,9 +29,17 @@ public slots:
     // allDay == true items are shown.
     void setEvents(const QList<MonthDayEventItem> &events);
 
+    // Marks the pill for (calendarId, eventId) as selected (empty ids
+    // clear). Re-applied across rebuildEventWidgets().
+    void setSelectedEvent(const QString &calendarId, const QString &eventId);
+
 signals:
     void clicked(QDate date);
+    // Emitted only for a press on the cell's empty area, not on an event
+    // pill (which also emits clicked, for date selection).
+    void backgroundClicked(QDate date);
     void doubleClicked(QDate date);
+    void eventClicked(const QString &calendarId, const QString &eventId);
     void eventEditRequested(const QString &calendarId, const QString &eventId);
 
 protected:
@@ -42,9 +50,12 @@ protected:
 private:
     void rebuildEventWidgets();
     void updateEventPillTexts();
+    void applyEventSelection();
 
     QList<QWidget *> m_eventWidgets;
     QList<MonthDayEventItem> m_events; // allDay items only, filtered in setEvents
+    QString m_selectedCalendarId;
+    QString m_selectedEventId;
     QDate m_date;
 };
 

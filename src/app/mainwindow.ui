@@ -234,6 +234,7 @@
      <string>Actions</string>
     </property>
     <addaction name="actionRefresh"/>
+    <addaction name="actionDeleteEvent"/>
    </widget>
    <widget class="QMenu" name="menuDebug">
     <property name="title">
@@ -256,7 +257,18 @@
     <string>Refresh</string>
    </property>
    <property name="shortcut">
-    <string>F5</string>
+    <string notr="true">F5</string>
+   </property>
+  </action>
+  <action name="actionDeleteEvent">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>Delete Selected Event</string>
+   </property>
+   <property name="shortcut">
+    <string notr="true">Del</string>
    </property>
   </action>
   <action name="actionTestNotification">

@@ -6,6 +6,8 @@
 #include <QDate>
 #include <QDateTime>
 #include <QList>
+#include <QPair>
+#include <QString>
 #include <QWidget>
 
 // One day's column inside the time-grid (week/day) view's scrollable body:
@@ -37,13 +39,22 @@ public slots:
     // valid startInstant/endInstant are laid out.
     void setEvents(const QList<MonthDayEventItem> &events);
 
+    // Marks the pill for (calendarId, eventId) as selected (empty ids
+    // clear). Re-applied across every relayoutEvents() so the highlight
+    // survives a resize / refresh.
+    void setSelectedEvent(const QString &calendarId, const QString &eventId);
+
     // Repaints the current-time indicator line at its live position.
     // Cheap no-op when date() isn't today.
     void refreshNowLine();
 
 signals:
     void clicked(QDate date);
+    // Emitted only for a press on the column's empty area, not on an event
+    // pill (which also emits clicked, for date selection).
+    void backgroundClicked(QDate date);
     void slotDoubleClicked(const QDateTime &startDateTime);
+    void eventClicked(const QString &calendarId, const QString &eventId);
     void eventEditRequested(const QString &calendarId, const QString &eventId);
 
 protected:
@@ -62,6 +73,12 @@ private:
     bool m_isToday = false;
     QList<MonthDayEventItem> m_events;
     QList<QWidget *> m_eventWidgets; // EventPillLabel*, absolutely positioned
+    // (calendarId, eventId) parallel to m_eventWidgets — m_eventWidgets is a
+    // filtered/sorted subset of m_events (timed only), so this maps each
+    // pill back to its event for the selection highlight.
+    QList<QPair<QString, QString>> m_eventWidgetKeys;
+    QString m_selectedCalendarId;
+    QString m_selectedEventId;
     // Draws the current-time indicator. A separate top-most child rather
     // than part of paintEvent() so the line stays visible over event pills
     // (which are child widgets and would otherwise paint on top of it).

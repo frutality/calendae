@@ -1,6 +1,8 @@
 #include "eventpilllabel.h"
 
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPaintEvent>
 #include <QSizePolicy>
 
 EventPillLabel::EventPillLabel(const MonthDayEventItem &item, QWidget *parent)
@@ -23,6 +25,14 @@ EventPillLabel::EventPillLabel(const MonthDayEventItem &item, QWidget *parent)
     setMinimumWidth(0);
 }
 
+void EventPillLabel::setSelected(bool selected)
+{
+    if (m_selected == selected)
+        return;
+    m_selected = selected;
+    update();
+}
+
 void EventPillLabel::mousePressEvent(QMouseEvent *event)
 {
     // Deliberately do NOT forward to QLabel::mousePressEvent(): QWidget's
@@ -32,7 +42,7 @@ void EventPillLabel::mousePressEvent(QMouseEvent *event)
     // re-processed a second time (or reach the cell at all). Calling
     // accept() and stopping here avoids both.
     if (event->button() == Qt::LeftButton) {
-        emit singleClicked();
+        emit singleClicked(m_calendarId, m_eventId);
         event->accept();
     }
 }
@@ -47,4 +57,21 @@ void EventPillLabel::mouseDoubleClickEvent(QMouseEvent *event)
         emit editRequested(m_calendarId, m_eventId);
         event->accept();
     }
+}
+
+void EventPillLabel::paintEvent(QPaintEvent *event)
+{
+    QLabel::paintEvent(event);
+
+    if (!m_selected)
+        return;
+
+    // A 2px highlight outline inset by 1px, radius matching the pill's own
+    // "border-radius: 3px" stylesheet. Drawn after the base class so it
+    // sits on top of the calendar-coloured background.
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(QPen(palette().color(QPalette::Highlight), 2));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 3, 3);
 }

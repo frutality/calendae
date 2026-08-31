@@ -64,7 +64,9 @@ TimeGridViewWidget::TimeGridViewWidget(int dayCount, QWidget *parent)
     for (int i = 0; i < m_dayCount; ++i) {
         auto *cell = new TimeGridAllDayCellWidget(this);
         connect(cell, &TimeGridAllDayCellWidget::clicked, this, &TimeGridViewWidget::onColumnClicked);
+        connect(cell, &TimeGridAllDayCellWidget::backgroundClicked, this, [this] { clearEventSelection(); });
         connect(cell, &TimeGridAllDayCellWidget::doubleClicked, this, &TimeGridViewWidget::newEventRequested);
+        connect(cell, &TimeGridAllDayCellWidget::eventClicked, this, &TimeGridViewWidget::onColumnEventClicked);
         connect(cell, &TimeGridAllDayCellWidget::eventEditRequested, this, &TimeGridViewWidget::eventEditRequested);
         allDayLayout->addWidget(cell, 1);
         m_allDayCells.append(cell);
@@ -92,7 +94,9 @@ TimeGridViewWidget::TimeGridViewWidget(int dayCount, QWidget *parent)
     for (int i = 0; i < m_dayCount; ++i) {
         auto *column = new TimeGridDayColumnWidget(gridHost);
         connect(column, &TimeGridDayColumnWidget::clicked, this, &TimeGridViewWidget::onColumnClicked);
+        connect(column, &TimeGridDayColumnWidget::backgroundClicked, this, [this] { clearEventSelection(); });
         connect(column, &TimeGridDayColumnWidget::slotDoubleClicked, this, &TimeGridViewWidget::newTimedEventRequested);
+        connect(column, &TimeGridDayColumnWidget::eventClicked, this, &TimeGridViewWidget::onColumnEventClicked);
         connect(column, &TimeGridDayColumnWidget::eventEditRequested, this, &TimeGridViewWidget::eventEditRequested);
         gridLayout->addWidget(column, 1);
         m_dayColumns.append(column);
@@ -130,6 +134,56 @@ void TimeGridViewWidget::onColumnClicked(QDate date)
     selectDate(date);
 }
 
+void TimeGridViewWidget::onColumnEventClicked(const QString &calendarId, const QString &eventId)
+{
+    if (m_selectedEventCalendarId == calendarId && m_selectedEventId == eventId)
+        return;
+    m_selectedEventCalendarId = calendarId;
+    m_selectedEventId = eventId;
+    for (int i = 0; i < m_dayCount; ++i) {
+        m_allDayCells[i]->setSelectedEvent(calendarId, eventId);
+        m_dayColumns[i]->setSelectedEvent(calendarId, eventId);
+    }
+    emit eventSelectionChanged(calendarId, eventId);
+}
+
+void TimeGridViewWidget::clearEventSelection()
+{
+    if (m_selectedEventCalendarId.isEmpty() && m_selectedEventId.isEmpty())
+        return;
+    m_selectedEventCalendarId.clear();
+    m_selectedEventId.clear();
+    for (int i = 0; i < m_dayCount; ++i) {
+        m_allDayCells[i]->setSelectedEvent(QString(), QString());
+        m_dayColumns[i]->setSelectedEvent(QString(), QString());
+    }
+    emit eventSelectionChanged(QString(), QString());
+}
+
+void TimeGridViewWidget::refreshEventSelection()
+{
+    if (m_selectedEventId.isEmpty())
+        return;
+
+    bool stillPresent = false;
+    const auto calIt = m_eventsByCalendar.constFind(m_selectedEventCalendarId);
+    if (calIt != m_eventsByCalendar.constEnd()) {
+        for (auto dateIt = calIt->constBegin(); dateIt != calIt->constEnd() && !stillPresent; ++dateIt) {
+            for (const MonthDayEventItem &item : dateIt.value()) {
+                if (item.eventId == m_selectedEventId) {
+                    stillPresent = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // When still present, the freshly rebuilt pills are already re-highlighted
+    // by each cell/column's own applyEventSelection()/relayoutEvents().
+    if (!stillPresent)
+        clearEventSelection();
+}
+
 QPoint TimeGridViewWidget::scrollPosition() const
 {
     return QPoint(m_scrollArea->horizontalScrollBar()->value(), m_scrollArea->verticalScrollBar()->value());
@@ -148,6 +202,9 @@ QPoint TimeGridViewWidget::maxScrollPosition() const
 
 void TimeGridViewWidget::refreshColumns()
 {
+    // A range change destroys and recreates every pill; drop the selection.
+    clearEventSelection();
+
     const QLocale locale = QLocale::system();
     for (int i = 0; i < m_dayCount; ++i) {
         const QDate date = m_rangeStart.addDays(i);
@@ -303,4 +360,6 @@ void TimeGridViewWidget::rebuildAllCellEventLists()
         m_allDayCells[i]->setEvents(events);
         m_dayColumns[i]->setEvents(events);
     }
+
+    refreshEventSelection();
 }

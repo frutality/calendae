@@ -66,12 +66,19 @@ public slots:
     void clearEventsForCalendar(const QString &calendarId);
     void clearAllEvents();
 
+    // Drops the selected-event highlight (if any) and notifies via
+    // eventSelectionChanged with empty ids. Same contract as
+    // MonthViewWidget::clearEventSelection().
+    void clearEventSelection();
+
 signals:
     void dateSelected(QDate date);
     void displayedRangeChanged(QDate rangeStart);
     void newEventRequested(QDate date); // all-day row / header click-to-create
     void newTimedEventRequested(QDateTime startDateTime); // half-hour slot double-click
     void eventEditRequested(const QString &calendarId, const QString &eventId);
+    // Empty ids mean "nothing selected". Mirrors MonthViewWidget's signal.
+    void eventSelectionChanged(const QString &calendarId, const QString &eventId);
 
 private:
     void refreshColumns();
@@ -79,11 +86,15 @@ private:
     void updateHeaderAndColumnStates();
     void rebuildAllCellEventLists();
     void onColumnClicked(QDate date);
+    void onColumnEventClicked(const QString &calendarId, const QString &eventId);
+    void refreshEventSelection();
 
     Ui::TimeGridViewWidget *ui;
     int m_dayCount;
     QDate m_rangeStart;
     QDate m_selectedDate;
+    QString m_selectedEventCalendarId;
+    QString m_selectedEventId;
 
     QVector<QToolButton *> m_headerButtons; // dayCount, one per column
     QVector<TimeGridAllDayCellWidget *> m_allDayCells; // dayCount

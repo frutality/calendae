@@ -119,6 +119,20 @@ void TimeGridDayColumnWidget::setEvents(const QList<MonthDayEventItem> &events)
     relayoutEvents();
 }
 
+void TimeGridDayColumnWidget::setSelectedEvent(const QString &calendarId, const QString &eventId)
+{
+    if (m_selectedCalendarId == calendarId && m_selectedEventId == eventId)
+        return;
+    m_selectedCalendarId = calendarId;
+    m_selectedEventId = eventId;
+    for (int i = 0; i < m_eventWidgets.size(); ++i) {
+        const QPair<QString, QString> &key = m_eventWidgetKeys.at(i);
+        const bool selected = !m_selectedEventId.isEmpty() && key.first == m_selectedCalendarId
+            && key.second == m_selectedEventId;
+        qobject_cast<EventPillLabel *>(m_eventWidgets.at(i))->setSelected(selected);
+    }
+}
+
 void TimeGridDayColumnWidget::refreshNowLine()
 {
     if (m_isToday)
@@ -148,6 +162,7 @@ void TimeGridDayColumnWidget::relayoutEvents()
     for (QWidget *widget : std::as_const(m_eventWidgets))
         widget->deleteLater();
     m_eventWidgets.clear();
+    m_eventWidgetKeys.clear();
 
     if (!m_date.isValid())
         return;
@@ -221,8 +236,13 @@ void TimeGridDayColumnWidget::relayoutEvents()
         const MonthDayEventItem &item = layoutItem.event;
         auto *pill = new EventPillLabel(item, this);
         pill->setToolTip(QStringLiteral("%1 %2").arg(item.timeLabel, item.title));
-        connect(pill, &EventPillLabel::singleClicked, this, [this] { emit clicked(m_date); });
+        connect(pill, &EventPillLabel::singleClicked, this, [this](const QString &calendarId, const QString &eventId) {
+            emit clicked(m_date);
+            emit eventClicked(calendarId, eventId);
+        });
         connect(pill, &EventPillLabel::editRequested, this, &TimeGridDayColumnWidget::eventEditRequested);
+        pill->setSelected(!m_selectedEventId.isEmpty() && item.eventId == m_selectedEventId
+                          && item.calendarId == m_selectedCalendarId);
 
         const QColor bg = item.color.isValid() ? item.color : QColor(Qt::gray);
         const QColor fg = bg.lightness() < 128 ? QColor(Qt::white) : QColor(Qt::black);
@@ -240,6 +260,7 @@ void TimeGridDayColumnWidget::relayoutEvents()
         pill->setGeometry(x, y, w, h);
         pill->show();
         m_eventWidgets.append(pill);
+        m_eventWidgetKeys.append({item.calendarId, item.eventId});
     }
 
     updateNowLineOverlay(); // re-raise above the pills just created
@@ -283,6 +304,7 @@ void TimeGridDayColumnWidget::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
         emit clicked(m_date);
+        emit backgroundClicked(m_date);
         event->accept();
     }
 }

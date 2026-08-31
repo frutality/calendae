@@ -27,7 +27,9 @@ MonthViewWidget::MonthViewWidget(QWidget *parent)
     for (int i = 0; i < 42; ++i) {
         auto *cell = new MonthDayCellWidget(this);
         connect(cell, &MonthDayCellWidget::clicked, this, &MonthViewWidget::onCellClicked);
+        connect(cell, &MonthDayCellWidget::backgroundClicked, this, [this] { clearEventSelection(); });
         connect(cell, &MonthDayCellWidget::doubleClicked, this, &MonthViewWidget::newEventRequested);
+        connect(cell, &MonthDayCellWidget::eventClicked, this, &MonthViewWidget::onEventClicked);
         connect(cell, &MonthDayCellWidget::eventEditRequested, this, &MonthViewWidget::eventEditRequested);
         ui->daysGridLayout->addWidget(cell, 1 + i / 7, i % 7);
         m_cells.append(cell);
@@ -72,6 +74,11 @@ void MonthViewWidget::buildWeekdayHeader()
 
 void MonthViewWidget::refreshCells()
 {
+    // Any grid rebuild is a navigation (month change / today / cross-month
+    // selectDate): the previously selected event pill is about to be
+    // destroyed, so drop the selection too.
+    clearEventSelection();
+
     // Defensive belt-and-suspenders: the view can never show stale events
     // for the wrong grid, independent of whether a controller remembers to
     // clear them before navigating.
@@ -126,6 +133,8 @@ void MonthViewWidget::rebuildAllCellEventLists()
 
     for (auto cellIt = m_cellByDate.constBegin(); cellIt != m_cellByDate.constEnd(); ++cellIt)
         cellIt.value()->setEvents(merged.value(cellIt.key()));
+
+    refreshEventSelection();
 }
 
 void MonthViewWidget::updateMonthYearLabel()
@@ -195,6 +204,53 @@ void MonthViewWidget::selectDate(const QDate &date)
 void MonthViewWidget::onCellClicked(QDate date)
 {
     selectDate(date);
+}
+
+void MonthViewWidget::onEventClicked(const QString &calendarId, const QString &eventId)
+{
+    if (m_selectedEventCalendarId == calendarId && m_selectedEventId == eventId)
+        return;
+    m_selectedEventCalendarId = calendarId;
+    m_selectedEventId = eventId;
+    for (MonthDayCellWidget *cell : std::as_const(m_cells))
+        cell->setSelectedEvent(calendarId, eventId);
+    emit eventSelectionChanged(calendarId, eventId);
+}
+
+void MonthViewWidget::clearEventSelection()
+{
+    if (m_selectedEventCalendarId.isEmpty() && m_selectedEventId.isEmpty())
+        return;
+    m_selectedEventCalendarId.clear();
+    m_selectedEventId.clear();
+    for (MonthDayCellWidget *cell : std::as_const(m_cells))
+        cell->setSelectedEvent(QString(), QString());
+    emit eventSelectionChanged(QString(), QString());
+}
+
+void MonthViewWidget::refreshEventSelection()
+{
+    if (m_selectedEventId.isEmpty())
+        return;
+
+    bool stillPresent = false;
+    const auto calIt = m_eventsByCalendar.constFind(m_selectedEventCalendarId);
+    if (calIt != m_eventsByCalendar.constEnd()) {
+        for (auto dateIt = calIt->constBegin(); dateIt != calIt->constEnd() && !stillPresent; ++dateIt) {
+            for (const MonthDayEventItem &item : dateIt.value()) {
+                if (item.eventId == m_selectedEventId) {
+                    stillPresent = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // When still present, the freshly rebuilt pills are already re-highlighted
+    // by each cell's own applyEventSelection() (it keeps the ids across a
+    // setEvents()); nothing more to do here.
+    if (!stillPresent)
+        clearEventSelection();
 }
 
 QPoint MonthViewWidget::scrollPosition() const

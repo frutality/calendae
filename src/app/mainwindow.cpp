@@ -39,6 +39,7 @@ MainWindow::MainWindow(QWidget *parent)
     connectAuth();
     connectCalendarData();
     connectEventEditing();
+    connectEventSelection();
     connectReminders();
     connectPeriodicRefresh();
 
@@ -112,14 +113,17 @@ void MainWindow::createWidgets()
 void MainWindow::connectViewSwitching()
 {
     connect(ui->monthViewButton, &QPushButton::clicked, this, [this] {
+        clearEventSelectionAllViews();
         ensureControllerPopulated(m_monthEventsController, m_monthControllerPopulated);
         m_viewStack->setCurrentWidget(m_monthView);
     });
     connect(ui->weekViewButton, &QPushButton::clicked, this, [this] {
+        clearEventSelectionAllViews();
         ensureControllerPopulated(m_weekEventsController, m_weekControllerPopulated);
         m_viewStack->setCurrentWidget(m_weekView);
     });
     connect(ui->dayViewButton, &QPushButton::clicked, this, [this] {
+        clearEventSelectionAllViews();
         ensureControllerPopulated(m_dayEventsController, m_dayControllerPopulated);
         m_viewStack->setCurrentWidget(m_dayView);
     });
@@ -161,6 +165,10 @@ void MainWindow::connectAuth()
         m_monthControllerPopulated = false;
         m_weekControllerPopulated = false;
         m_dayControllerPopulated = false;
+        m_selectedEventCalendarId.clear();
+        m_selectedEventId.clear();
+        m_pendingStandaloneDeleteRequestId = 0;
+        updateDeleteEventActionEnabled();
     });
 }
 
@@ -225,6 +233,100 @@ void MainWindow::connectEventEditing()
         });
         connect(view, &TimeGridViewWidget::eventEditRequested, this, &MainWindow::openEditEventDialog);
     }
+}
+
+void MainWindow::connectEventSelection()
+{
+    connect(m_monthView, &MonthViewWidget::eventSelectionChanged, this, &MainWindow::onViewEventSelectionChanged);
+    for (TimeGridViewWidget *view : {m_weekView, m_dayView})
+        connect(view, &TimeGridViewWidget::eventSelectionChanged, this, &MainWindow::onViewEventSelectionChanged);
+
+    connect(ui->actionDeleteEvent, &QAction::triggered, this, &MainWindow::deleteSelectedEvent);
+
+    // Persistent response handlers for the Del-key delete path (the edit
+    // dialog drives its own delete separately, with in-dialog progress/error
+    // UI). Both match on m_pendingStandaloneDeleteRequestId, which is 0
+    // unless a standalone delete is in flight, so they never react to a
+    // dialog-initiated delete.
+    connect(m_calendarApi, &GoogleCalendarApi::eventDeleted, this,
+            [this](quint64 requestId, const QString &calendarId, const QString &) {
+                if (requestId != m_pendingStandaloneDeleteRequestId)
+                    return;
+                m_pendingStandaloneDeleteRequestId = 0;
+                m_monthEventStore->invalidateCalendar(calendarId);
+                for (EventsController *controller : std::as_const(m_eventsControllers))
+                    controller->refreshCalendar(calendarId);
+                clearEventSelectionAllViews();
+                updateDeleteEventActionEnabled();
+                statusBar()->showMessage(tr("Event deleted."), 4000);
+            });
+    connect(m_calendarApi, &GoogleCalendarApi::eventDeleteFailed, this,
+            [this](quint64 requestId, const QString &, const QString &, const QString &message) {
+                if (requestId != m_pendingStandaloneDeleteRequestId)
+                    return;
+                m_pendingStandaloneDeleteRequestId = 0;
+                updateDeleteEventActionEnabled();
+                statusBar()->showMessage(message, 8000);
+            });
+}
+
+void MainWindow::onViewEventSelectionChanged(const QString &calendarId, const QString &eventId)
+{
+    m_selectedEventCalendarId = calendarId;
+    m_selectedEventId = eventId;
+    updateDeleteEventActionEnabled();
+}
+
+void MainWindow::clearEventSelectionAllViews()
+{
+    m_monthView->clearEventSelection();
+    m_weekView->clearEventSelection();
+    m_dayView->clearEventSelection();
+}
+
+void MainWindow::updateDeleteEventActionEnabled()
+{
+    ui->actionDeleteEvent->setEnabled(m_authManager->state() == AuthManager::AuthState::SignedIn
+                                      && !m_selectedEventId.isEmpty()
+                                      && m_pendingStandaloneDeleteRequestId == 0);
+}
+
+void MainWindow::deleteSelectedEvent()
+{
+    if (m_authManager->state() != AuthManager::AuthState::SignedIn || m_selectedEventId.isEmpty()
+        || m_pendingStandaloneDeleteRequestId != 0)
+        return;
+
+    const std::optional<Event> event = findCachedEventAcrossViews(m_selectedEventCalendarId, m_selectedEventId);
+    const std::optional<Calendar> calendar = findCalendar(m_selectedEventCalendarId);
+    if (!event || !calendar) {
+        statusBar()->showMessage(tr("This event is no longer available."), 4000);
+        clearEventSelectionAllViews();
+        return;
+    }
+
+    const auto choice = QMessageBox::question(this, tr("Delete Event"), eventDeleteConfirmationText(*event),
+                                              QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (choice != QMessageBox::Yes)
+        return;
+
+    performEventDelete(m_selectedEventCalendarId, m_selectedEventId);
+}
+
+void MainWindow::performEventDelete(const QString &calendarId, const QString &eventId)
+{
+    m_pendingStandaloneDeleteRequestId = m_nextEventDeleteRequestId++;
+    updateDeleteEventActionEnabled();
+    m_calendarApi->deleteEvent(m_pendingStandaloneDeleteRequestId, calendarId, eventId);
+}
+
+QString MainWindow::eventDeleteConfirmationText(const Event &event) const
+{
+    const QString displayTitle = event.summary.isEmpty() ? tr("(No title)") : event.summary;
+    return event.recurringEventId.isEmpty()
+        ? tr("Delete \"%1\"? This can't be undone.").arg(displayTitle)
+        : tr("Delete \"%1\"? This will remove only this occurrence of the recurring event. This can't be undone.")
+              .arg(displayTitle);
 }
 
 void MainWindow::connectReminders()
@@ -479,6 +581,7 @@ void MainWindow::updateUiForState(AuthManager::AuthState state)
 {
     ui->actionSignOut->setEnabled(state == AuthManager::AuthState::SignedIn);
     ui->actionRefresh->setEnabled(state == AuthManager::AuthState::SignedIn);
+    updateDeleteEventActionEnabled();
 
     switch (state) {
     case AuthManager::AuthState::SignedOut:
@@ -688,12 +791,8 @@ void MainWindow::openEditEventDialog(const QString &calendarId, const QString &e
 
     connect(&dialog, &EventDialog::deleteRequested, this,
             [this, &dialog, &pendingDeleteRequestId, calendarId,
-             displayTitle = event->summary.isEmpty() ? tr("(No title)") : event->summary,
-             isRecurringInstance = !event->recurringEventId.isEmpty()](const QString &eventId) {
-                const QString text = isRecurringInstance
-                    ? tr("Delete \"%1\"? This will remove only this occurrence of the recurring event. This can't be undone.").arg(displayTitle)
-                    : tr("Delete \"%1\"? This can't be undone.").arg(displayTitle);
-                const auto choice = QMessageBox::question(&dialog, tr("Delete Event"), text,
+             confirmText = eventDeleteConfirmationText(*event)](const QString &eventId) {
+                const auto choice = QMessageBox::question(&dialog, tr("Delete Event"), confirmText,
                                                             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
                 if (choice != QMessageBox::Yes)
                     return;

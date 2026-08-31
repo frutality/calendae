@@ -82,6 +82,25 @@ void MonthDayCellWidget::setEvents(const QList<MonthDayEventItem> &events)
     rebuildEventWidgets();
 }
 
+void MonthDayCellWidget::setSelectedEvent(const QString &calendarId, const QString &eventId)
+{
+    if (m_selectedCalendarId == calendarId && m_selectedEventId == eventId)
+        return;
+    m_selectedCalendarId = calendarId;
+    m_selectedEventId = eventId;
+    applyEventSelection();
+}
+
+void MonthDayCellWidget::applyEventSelection()
+{
+    for (int i = 0; i < m_eventWidgets.size(); ++i) {
+        const MonthDayEventItem &item = m_events.at(i);
+        const bool selected = !m_selectedEventId.isEmpty() && item.eventId == m_selectedEventId
+            && item.calendarId == m_selectedCalendarId;
+        qobject_cast<EventPillLabel *>(m_eventWidgets.at(i))->setSelected(selected);
+    }
+}
+
 void MonthDayCellWidget::mousePressEvent(QMouseEvent *event)
 {
     // Deliberately not forwarded to QWidget::mousePressEvent(): its default
@@ -90,6 +109,7 @@ void MonthDayCellWidget::mousePressEvent(QMouseEvent *event)
     // the same gesture. Accepting here and stopping avoids that.
     if (event->button() == Qt::LeftButton) {
         emit clicked(m_date);
+        emit backgroundClicked(m_date);
         event->accept();
     }
 }
@@ -187,7 +207,10 @@ void MonthDayCellWidget::rebuildEventWidgets()
 
         auto *pill = new EventPillLabel(item, this);
         pill->setToolTip(rawText);
-        connect(pill, &EventPillLabel::singleClicked, this, [this] { emit clicked(m_date); });
+        connect(pill, &EventPillLabel::singleClicked, this, [this](const QString &calendarId, const QString &eventId) {
+            emit clicked(m_date);
+            emit eventClicked(calendarId, eventId);
+        });
         connect(pill, &EventPillLabel::editRequested, this, &MonthDayCellWidget::eventEditRequested);
 
         const QColor bg = item.color.isValid() ? item.color : QColor(Qt::gray);
@@ -203,6 +226,7 @@ void MonthDayCellWidget::rebuildEventWidgets()
         ++insertIndex;
     }
 
+    applyEventSelection();
     updateGeometry();
 }
 

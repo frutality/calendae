@@ -48,6 +48,25 @@ void TimeGridAllDayCellWidget::setEvents(const QList<MonthDayEventItem> &events)
     rebuildEventWidgets();
 }
 
+void TimeGridAllDayCellWidget::setSelectedEvent(const QString &calendarId, const QString &eventId)
+{
+    if (m_selectedCalendarId == calendarId && m_selectedEventId == eventId)
+        return;
+    m_selectedCalendarId = calendarId;
+    m_selectedEventId = eventId;
+    applyEventSelection();
+}
+
+void TimeGridAllDayCellWidget::applyEventSelection()
+{
+    for (int i = 0; i < m_eventWidgets.size(); ++i) {
+        const MonthDayEventItem &item = m_events.at(i);
+        const bool selected = !m_selectedEventId.isEmpty() && item.eventId == m_selectedEventId
+            && item.calendarId == m_selectedCalendarId;
+        qobject_cast<EventPillLabel *>(m_eventWidgets.at(i))->setSelected(selected);
+    }
+}
+
 void TimeGridAllDayCellWidget::mousePressEvent(QMouseEvent *event)
 {
     // Deliberately not forwarded to QWidget::mousePressEvent(): its default
@@ -56,6 +75,7 @@ void TimeGridAllDayCellWidget::mousePressEvent(QMouseEvent *event)
     // the same gesture (same precedent as MonthDayCellWidget).
     if (event->button() == Qt::LeftButton) {
         emit clicked(m_date);
+        emit backgroundClicked(m_date);
         event->accept();
     }
 }
@@ -100,7 +120,10 @@ void TimeGridAllDayCellWidget::rebuildEventWidgets()
     for (const MonthDayEventItem &item : std::as_const(m_events)) {
         auto *pill = new EventPillLabel(item, this);
         pill->setToolTip(item.title);
-        connect(pill, &EventPillLabel::singleClicked, this, [this] { emit clicked(m_date); });
+        connect(pill, &EventPillLabel::singleClicked, this, [this](const QString &calendarId, const QString &eventId) {
+            emit clicked(m_date);
+            emit eventClicked(calendarId, eventId);
+        });
         connect(pill, &EventPillLabel::editRequested, this, &TimeGridAllDayCellWidget::eventEditRequested);
 
         const QColor bg = item.color.isValid() ? item.color : QColor(Qt::gray);
@@ -116,5 +139,6 @@ void TimeGridAllDayCellWidget::rebuildEventWidgets()
         ++insertIndex;
     }
 
+    applyEventSelection();
     updateGeometry();
 }

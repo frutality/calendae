@@ -56,6 +56,7 @@ private:
     void connectAuth();
     void connectCalendarData();
     void connectEventEditing();
+    void connectEventSelection();
     void connectReminders();
     void connectPeriodicRefresh();
 
@@ -76,6 +77,18 @@ private:
     void openEditEventDialog(const QString &calendarId, const QString &eventId);
     std::optional<Calendar> findCalendar(const QString &calendarId) const;
     std::optional<Event> findCachedEventAcrossViews(const QString &calendarId, const QString &eventId) const;
+
+    // Delete-Selected-Event (Del key / Actions menu). The three views own the
+    // click-to-select highlight and report it via eventSelectionChanged;
+    // MainWindow just tracks the current (calendarId, eventId) pair, owns the
+    // confirmation prompt, and drives the delete request — the same
+    // invalidate + refanout flow the edit dialog's Delete button uses.
+    void onViewEventSelectionChanged(const QString &calendarId, const QString &eventId);
+    void clearEventSelectionAllViews();
+    void updateDeleteEventActionEnabled();
+    void deleteSelectedEvent();
+    void performEventDelete(const QString &calendarId, const QString &eventId);
+    QString eventDeleteConfirmationText(const Event &event) const;
 
     // Whichever view (month/week/day) is on screen when the calendar list
     // loads populates eagerly; the other two populate lazily, on first
@@ -146,5 +159,15 @@ private:
     quint64 m_nextEventCreateRequestId = 1;
     quint64 m_nextEventUpdateRequestId = 1;
     quint64 m_nextEventDeleteRequestId = 1;
+
+    // Current click-selected event (empty when none), mirrored from whichever
+    // view is on screen. Only the active view can hold a selection — a view
+    // switch clears all three.
+    QString m_selectedEventCalendarId;
+    QString m_selectedEventId;
+    // Non-zero while a Del-key delete is in flight; the response handlers in
+    // connectEventSelection() match on it (distinct from the edit dialog's
+    // own pending id, which they ignore).
+    quint64 m_pendingStandaloneDeleteRequestId = 0;
 };
 #endif // MAINWINDOW_H

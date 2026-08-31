@@ -45,9 +45,20 @@ public:
 public slots:
     void setEvents(const QList<MonthDayEventItem> &events);
 
+    // Marks the pill for (calendarId, eventId) as selected and clears any
+    // previous one; empty ids clear the selection. The chosen pill survives
+    // a rebuildEventWidgets() (periodic refresh, resize) because the ids are
+    // stored and re-applied there.
+    void setSelectedEvent(const QString &calendarId, const QString &eventId);
+
 signals:
     void clicked(QDate date);
+    // Emitted only for a press on the cell's own empty area, not on an event
+    // pill — the view uses it to clear the selected-event highlight while a
+    // pill press (which also emits clicked, for date selection) keeps it.
+    void backgroundClicked(QDate date);
     void doubleClicked(QDate date);
+    void eventClicked(const QString &calendarId, const QString &eventId);
     void eventEditRequested(const QString &calendarId, const QString &eventId);
 
 protected:
@@ -61,9 +72,13 @@ private:
     void rebuildEventWidgets();
     void updateEventPillTexts();
 
+    void applyEventSelection();
+
     QLabel *m_dayNumberLabel;
     QList<QWidget *> m_eventWidgets;
     QList<MonthDayEventItem> m_events;
+    QString m_selectedCalendarId;
+    QString m_selectedEventId;
 
     QDate m_date;
     bool m_inCurrentMonth = true;
