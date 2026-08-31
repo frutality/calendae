@@ -192,7 +192,11 @@ void TimeGridDayColumnWidget::relayoutEvents()
     assignColumnsForCluster(items, clusterBegin, items.size());
 
     const int usableWidth = qMax(width(), 1);
-    constexpr int kGap = 2;
+    constexpr int kGap = 2;   // horizontal gap between side-by-side columns
+    constexpr int kVGap = 2;  // vertical gap shaved off each pill's bottom so
+                              // back-to-back events (one ending exactly when
+                              // the next starts) don't merge into one blob —
+                              // matches month view's QVBoxLayout spacing of 2.
 
     // The pill's stylesheet adds 1px top/bottom padding (see below); a box
     // shorter than the font's own line height plus that padding clips the
@@ -208,7 +212,7 @@ void TimeGridDayColumnWidget::relayoutEvents()
         const double minutesFromMidnight = dayStart.secsTo(layoutItem.clippedStart) / 60.0;
         const double durationMinutes = layoutItem.clippedStart.secsTo(layoutItem.clippedEnd) / 60.0;
         const int y = qRound(minutesFromMidnight * (kSlotHeight / 30.0));
-        const int h = qMax(minPillHeight, qRound(durationMinutes * (kSlotHeight / 30.0)));
+        const int h = qMax(minPillHeight, qRound(durationMinutes * (kSlotHeight / 30.0)) - kVGap);
 
         const int columnWidth = usableWidth / layoutItem.columnCount;
         const int x = layoutItem.columnIndex * columnWidth;
