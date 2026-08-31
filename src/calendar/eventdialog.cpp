@@ -94,8 +94,8 @@ EventDialog::EventDialog(const Calendar &calendar, const Event &event, QWidget *
     connect(ui->allDayCheck, &QCheckBox::toggled, this, &EventDialog::onAllDayToggled);
     connect(ui->buttonBox, &QDialogButtonBox::accepted, this, &EventDialog::onOkClicked);
 
-    QPushButton *deleteButton = ui->buttonBox->addButton(tr("Delete"), QDialogButtonBox::DestructiveRole);
-    connect(deleteButton, &QPushButton::clicked, this, &EventDialog::onDeleteClicked);
+    ui->deleteButton->setVisible(true);
+    connect(ui->deleteButton, &QPushButton::clicked, this, &EventDialog::onDeleteClicked);
 
     onAllDayToggled(event.allDay);
 
@@ -270,7 +270,8 @@ void EventDialog::setFormEnabled(bool enabled)
     ui->reminderCombo->setEnabled(enabled && ui->reminderCheck->isChecked());
     ui->reminderCustomValue->setEnabled(enabled);
     ui->reminderCustomUnit->setEnabled(enabled);
-    ui->buttonBox->setEnabled(enabled); // disables Ok/Cancel/Delete together
+    ui->buttonBox->setEnabled(enabled); // disables Ok/Cancel together
+    ui->deleteButton->setEnabled(enabled);
 }
 
 void EventDialog::setSubmitInProgress(bool inProgress)
