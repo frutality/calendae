@@ -80,6 +80,17 @@ void MonthEventsController::refreshCalendar(const QString &calendarId)
     m_store->ensureMonths(currentMonthKeys(), {calendarId});
 }
 
+void MonthEventsController::refreshVisibleFromServer()
+{
+    if (!ready())
+        return;
+
+    // No clearAllEvents(), no immediate render, no maybeEmitCycleFinished():
+    // the pill list stays put and onBucketUpdated() repaints per calendar as
+    // the replies arrive (firing fetchCycleFinished() then, as usual).
+    m_store->refreshVisible(currentMonthKeys(), m_enabledCalendarIds);
+}
+
 std::optional<Event> MonthEventsController::findCachedEvent(const QString &calendarId, const QString &eventId) const
 {
     for (const Event &event : m_store->eventsFor(calendarId, currentMonthKeys())) {

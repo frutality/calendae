@@ -43,6 +43,15 @@ public slots:
     // if calendarId is unknown or nothing is loaded yet.
     virtual void refreshCalendar(const QString &calendarId) = 0;
 
+    // MainWindow's ~10-minute safety poll calls this on whichever view
+    // controller is currently on screen. Unlike refreshCalendar(), the store
+    // has NOT been invalidated first — this re-hits the network for the
+    // on-screen buckets past their freshness TTL, to catch edits made in the
+    // Google web UI while the window sat idle. No view clear: current events
+    // stay put until the reply lands. Default no-op — ReminderScheduler runs
+    // its own rolling fetch and ignores this.
+    virtual void refreshVisibleFromServer() {}
+
 public:
     // Synchronous lookup into the current range's cached events. Returns
     // std::nullopt if not present in this controller's cache.

@@ -40,6 +40,7 @@ MainWindow::MainWindow(QWidget *parent)
     connectCalendarData();
     connectEventEditing();
     connectReminders();
+    connectPeriodicRefresh();
 
     restoreWindowState();
     updateUiForState(m_authManager->state());
@@ -257,6 +258,28 @@ void MainWindow::connectReminders()
         sample.minutesBefore = 10;
         m_desktopNotifier->notify(sample);
     });
+}
+
+void MainWindow::connectPeriodicRefresh()
+{
+    // A background safety net: even with no navigation, no view switch and no
+    // sidebar toggle, re-pull the visible range from the server every 10
+    // minutes so an event added/edited/deleted in the Google web UI while
+    // calendae sits open shows up on its own. Only the on-screen view's
+    // controller is polled — the other two re-sync on the next switch to
+    // them. ReminderScheduler keeps its own independent 10-minute cycle.
+    m_periodicRefreshTimer = new QTimer(this);
+    m_periodicRefreshTimer->setInterval(10 * 60 * 1000);
+    connect(m_periodicRefreshTimer, &QTimer::timeout, this, [this] {
+        if (m_authManager->state() != AuthManager::AuthState::SignedIn)
+            return;
+        if (m_serverUnavailable)
+            return; // m_reconnectTimer + calendarListFetched heal the views on recovery
+        activeViewController()->refreshVisibleFromServer();
+    });
+
+    connect(m_authManager, &AuthManager::signedIn, this, [this] { m_periodicRefreshTimer->start(); });
+    connect(m_authManager, &AuthManager::signedOut, this, [this] { m_periodicRefreshTimer->stop(); });
 }
 
 MainWindow::~MainWindow()
@@ -519,6 +542,15 @@ void MainWindow::ensureControllerPopulated(EventsController *controller, bool &p
         return;
     populated = true;
     controller->setCalendars(m_calendars);
+}
+
+EventsController *MainWindow::activeViewController() const
+{
+    if (m_viewStack->currentWidget() == m_weekView)
+        return m_weekEventsController;
+    if (m_viewStack->currentWidget() == m_dayView)
+        return m_dayEventsController;
+    return m_monthEventsController;
 }
 
 void MainWindow::applyCalendarList(const QList<Calendar> &calendars, bool fromCache)

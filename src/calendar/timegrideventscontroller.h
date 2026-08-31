@@ -36,6 +36,8 @@ public slots:
     void clear() override;
     void refreshCalendar(const QString &calendarId) override;
 
+    void refreshVisibleFromServer() override;
+
 public:
     std::optional<Event> findCachedEvent(const QString &calendarId, const QString &eventId) const override;
 

@@ -55,6 +55,16 @@ public:
     // and idempotent — safe to call on every navigation.
     void ensureMonths(const QList<QDate> &monthKeys, const QSet<QString> &calendarIds);
 
+    // Like ensureMonths(), but for MainWindow's periodic safety poll: forces
+    // a server re-fetch of every listed (monthKey, calendarId) pair
+    // regardless of its freshness TTL (a bucket refreshed a minute ago is
+    // still re-hit), skipping only pairs with a request already in flight.
+    // Deliberately decoupled from the lazy freshness TTL so the poll cadence
+    // is the only thing that governs how often idle views re-sync. Does not
+    // touch bucket.events — the view keeps showing current data until each
+    // reply lands via bucketUpdated.
+    void refreshVisible(const QList<QDate> &monthKeys, const QSet<QString> &calendarIds);
+
     // True when every requested pair has something to show or nothing more
     // coming: loaded, failed-permanently-until-the-next-ensureMonths, or
     // refreshing-in-place over data already on screen (disk-hydrated or a

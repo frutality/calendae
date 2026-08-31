@@ -66,6 +66,9 @@ class TestMonthEventStore : public QObject
 private slots:
     void ensureMonthsFansOutOneRequestPerBucket();
     void repeatEnsureWhileFreshStartsNothing();
+    void refreshVisibleReFetchesFreshBucket();
+    void refreshVisibleSkipsInFlightBucket();
+    void refreshVisibleKeepsEventsUntilReplyLands();
     void monthsSettledTracksInFlightBuckets();
     void eventsForReturnsLoadedBucketEvents();
     void eventsForDedupesAcrossAdjacentMonths();
@@ -110,6 +113,62 @@ void TestMonthEventStore::repeatEnsureWhileFreshStartsNothing()
     store.ensureMonths({kAug}, {QStringLiteral("a")});
     QCOMPARE(api.calls.size(), 1); // still fresh — no new request
     QVERIFY(store.monthsSettled({kAug}, {QStringLiteral("a")}));
+}
+
+void TestMonthEventStore::refreshVisibleReFetchesFreshBucket()
+{
+    AuthManager auth;
+    RecordingApi api(&auth);
+    MonthEventStore store(&api);
+    QSignalSpy updated(&store, &MonthEventStore::bucketUpdated);
+
+    store.ensureMonths({kAug}, {QStringLiteral("a")});
+    QCOMPARE(api.calls.size(), 1);
+    api.deliver(api.calls[0].id, QStringLiteral("a"), {makeEvent(QStringLiteral("e1"), QStringLiteral("a"))});
+    QVERIFY(updated.wait());
+
+    // ensureMonths() would treat this bucket as fresh and start nothing...
+    store.ensureMonths({kAug}, {QStringLiteral("a")});
+    QCOMPARE(api.calls.size(), 1);
+    // ...but the periodic poll re-hits the network regardless of the TTL.
+    store.refreshVisible({kAug}, {QStringLiteral("a")});
+    QCOMPARE(api.calls.size(), 2);
+}
+
+void TestMonthEventStore::refreshVisibleSkipsInFlightBucket()
+{
+    AuthManager auth;
+    RecordingApi api(&auth);
+    MonthEventStore store(&api);
+
+    store.ensureMonths({kAug}, {QStringLiteral("a")});
+    QCOMPARE(api.calls.size(), 1); // in flight, no reply yet
+
+    store.refreshVisible({kAug}, {QStringLiteral("a")});
+    QCOMPARE(api.calls.size(), 1); // not re-requested while one is already pending
+}
+
+void TestMonthEventStore::refreshVisibleKeepsEventsUntilReplyLands()
+{
+    AuthManager auth;
+    RecordingApi api(&auth);
+    MonthEventStore store(&api);
+    QSignalSpy updated(&store, &MonthEventStore::bucketUpdated);
+
+    store.ensureMonths({kAug}, {QStringLiteral("a")});
+    api.deliver(api.calls[0].id, QStringLiteral("a"), {makeEvent(QStringLiteral("e1"), QStringLiteral("a"))});
+    QVERIFY(updated.wait());
+
+    store.refreshVisible({kAug}, {QStringLiteral("a")});
+    QCOMPARE(api.calls.size(), 2);
+    // Old events stay visible while the refresh is in flight.
+    QCOMPARE(store.eventsFor(QStringLiteral("a"), {kAug}).size(), 1);
+    QVERIFY(store.monthsSettled({kAug}, {QStringLiteral("a")}));
+
+    api.deliver(api.calls[1].id, QStringLiteral("a"),
+                {makeEvent(QStringLiteral("e1"), QStringLiteral("a")), makeEvent(QStringLiteral("e2"), QStringLiteral("a"))});
+    QVERIFY(updated.wait());
+    QCOMPARE(store.eventsFor(QStringLiteral("a"), {kAug}).size(), 2);
 }
 
 void TestMonthEventStore::monthsSettledTracksInFlightBuckets()

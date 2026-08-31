@@ -81,6 +81,16 @@ void TimeGridEventsController::refreshCalendar(const QString &calendarId)
     m_store->ensureMonths(currentMonthKeys(), {calendarId});
 }
 
+void TimeGridEventsController::refreshVisibleFromServer()
+{
+    if (!ready())
+        return;
+
+    // See MonthEventsController::refreshVisibleFromServer(): silent re-fetch
+    // of the visible range, no view clear, repaint driven by onBucketUpdated().
+    m_store->refreshVisible(currentMonthKeys(), m_enabledCalendarIds);
+}
+
 std::optional<Event> TimeGridEventsController::findCachedEvent(const QString &calendarId, const QString &eventId) const
 {
     for (const Event &event : m_store->eventsFor(calendarId, currentMonthKeys())) {

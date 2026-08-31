@@ -67,6 +67,26 @@ void MonthEventStore::ensureMonths(const QList<QDate> &monthKeys, const QSet<QSt
     }
 }
 
+void MonthEventStore::refreshVisible(const QList<QDate> &monthKeys, const QSet<QString> &calendarIds)
+{
+    for (const QDate &rawMonth : monthKeys) {
+        const QDate month = MonthKeys::normalize(rawMonth);
+        if (!month.isValid())
+            continue;
+        for (const QString &calendarId : calendarIds) {
+            if (m_buckets[month][calendarId].state == State::NotLoaded)
+                tryHydrateFromDisk(month, calendarId); // parity with ensureMonths(): paint something first
+
+            if (m_buckets[month][calendarId].state == State::InFlight)
+                continue; // a fetch is already on the way; let it land
+
+            // Unlike ensureMonths() there is no bucketNeedsFetch() gate here:
+            // the poll's whole job is to re-hit the network past the TTL.
+            fetchBucket(month, calendarId);
+        }
+    }
+}
+
 void MonthEventStore::tryHydrateFromDisk(const QDate &month, const QString &calendarId)
 {
     if (!m_cache)

@@ -57,6 +57,7 @@ private:
     void connectCalendarData();
     void connectEventEditing();
     void connectReminders();
+    void connectPeriodicRefresh();
 
     // Applies a calendar list to the sidebar and every controller. fromCache
     // means it came from EventCacheStore on a cold start (instant, possibly
@@ -81,6 +82,10 @@ private:
     // switch to them. No-op if calendars haven't loaded yet or this
     // controller already has.
     void ensureControllerPopulated(EventsController *controller, bool &populated);
+
+    // The events controller backing whichever view (month / week / day) is
+    // currently on screen — the target of the periodic safety re-fetch.
+    EventsController *activeViewController() const;
 
     // Keeps m_calendars' cached .selected flags in sync with sidebar
     // toggles (and their rollback on failure) — needed so that a later
@@ -136,6 +141,7 @@ private:
     QLabel *m_memoryUsageLabel;
     QLabel *m_connectivityLabel = nullptr; // permanent status-bar widget, shown only while offline
     QTimer *m_reconnectTimer = nullptr;    // slow poll while offline
+    QTimer *m_periodicRefreshTimer = nullptr; // 10-min safety re-fetch of the visible range
     bool m_serverUnavailable = false;
     quint64 m_nextEventCreateRequestId = 1;
     quint64 m_nextEventUpdateRequestId = 1;
