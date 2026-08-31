@@ -255,6 +255,9 @@
    <property name="text">
     <string>Refresh</string>
    </property>
+   <property name="shortcut">
+    <string>F5</string>
+   </property>
   </action>
   <action name="actionTestNotification">
    <property name="text">
