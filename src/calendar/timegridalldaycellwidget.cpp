@@ -14,6 +14,10 @@ TimeGridAllDayCellWidget::TimeGridAllDayCellWidget(QWidget *parent)
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(2, 2, 2, 2);
     layout->setSpacing(2);
+    // Trailing stretch so the pill stack stays pinned to the top when this
+    // cell is stretched taller than its content by a busier day elsewhere in
+    // the strip (same reason as MonthDayCellWidget's trailing stretch).
+    layout->addStretch();
 
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 }
@@ -92,6 +96,7 @@ void TimeGridAllDayCellWidget::rebuildEventWidgets()
     }
     m_eventWidgets.clear();
 
+    int insertIndex = 0; // before the trailing stretch
     for (const MonthDayEventItem &item : std::as_const(m_events)) {
         auto *pill = new EventPillLabel(item, this);
         pill->setToolTip(item.title);
@@ -106,8 +111,9 @@ void TimeGridAllDayCellWidget::rebuildEventWidgets()
         const QFontMetrics metrics(pill->font());
         pill->setText(metrics.elidedText(item.title, Qt::ElideRight, qMax(width() - 8, 20)));
 
-        vbox->addWidget(pill);
+        vbox->insertWidget(insertIndex, pill);
         m_eventWidgets.append(pill);
+        ++insertIndex;
     }
 
     updateGeometry();
