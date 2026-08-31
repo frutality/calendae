@@ -280,6 +280,18 @@ void MainWindow::connectPeriodicRefresh()
 
     connect(m_authManager, &AuthManager::signedIn, this, [this] { m_periodicRefreshTimer->start(); });
     connect(m_authManager, &AuthManager::signedOut, this, [this] { m_periodicRefreshTimer->stop(); });
+
+    // "Actions -> Refresh": do right now exactly what the periodic timer
+    // would have done on its next tick — a silent server re-fetch of the
+    // on-screen view's range — and restart the timer so the next automatic
+    // refresh is a full interval away again (a manual refresh 4 minutes in
+    // shouldn't still fire the timer 6 minutes later).
+    connect(ui->actionRefresh, &QAction::triggered, this, [this] {
+        if (m_authManager->state() != AuthManager::AuthState::SignedIn)
+            return;
+        activeViewController()->refreshVisibleFromServer();
+        m_periodicRefreshTimer->start();
+    });
 }
 
 MainWindow::~MainWindow()
@@ -466,6 +478,7 @@ void MainWindow::reapplyScrollUntilSettled(QWidget *targetView, const QPoint &sc
 void MainWindow::updateUiForState(AuthManager::AuthState state)
 {
     ui->actionSignOut->setEnabled(state == AuthManager::AuthState::SignedIn);
+    ui->actionRefresh->setEnabled(state == AuthManager::AuthState::SignedIn);
 
     switch (state) {
     case AuthManager::AuthState::SignedOut:

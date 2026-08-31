@@ -359,7 +359,7 @@
     </message>
     <message>
         <location filename="../src/app/mainwindow.ui" line="49"/>
-        <location filename="../src/app/mainwindow.cpp" line="449"/>
+        <location filename="../src/app/mainwindow.cpp" line="485"/>
         <source>Not signed in.</source>
         <translation>Not signed in.</translation>
     </message>
@@ -390,81 +390,91 @@
     </message>
     <message>
         <location filename="../src/app/mainwindow.ui" line="234"/>
+        <source>Actions</source>
+        <translation>Actions</translation>
+    </message>
+    <message>
+        <location filename="../src/app/mainwindow.ui" line="240"/>
         <source>Debug</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/app/mainwindow.ui" line="244"/>
+        <location filename="../src/app/mainwindow.ui" line="251"/>
         <source>Sign Out</source>
         <translation>Sign Out</translation>
     </message>
     <message>
-        <location filename="../src/app/mainwindow.ui" line="249"/>
+        <location filename="../src/app/mainwindow.ui" line="256"/>
+        <source>Refresh</source>
+        <translation>Refresh</translation>
+    </message>
+    <message>
+        <location filename="../src/app/mainwindow.ui" line="261"/>
         <source>Test Notification</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/app/mainwindow.cpp" line="254"/>
+        <location filename="../src/app/mainwindow.cpp" line="255"/>
         <source>Test event</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/app/mainwindow.cpp" line="454"/>
+        <location filename="../src/app/mainwindow.cpp" line="490"/>
         <source>Restoring session…</source>
         <translation>Restoring session…</translation>
     </message>
     <message>
-        <location filename="../src/app/mainwindow.cpp" line="459"/>
+        <location filename="../src/app/mainwindow.cpp" line="495"/>
         <source>Signing in… waiting for your browser.</source>
         <translation>Signing in… waiting for your browser.</translation>
     </message>
     <message>
-        <location filename="../src/app/mainwindow.cpp" line="513"/>
+        <location filename="../src/app/mainwindow.cpp" line="549"/>
         <source>Event created.</source>
         <translation>Event created.</translation>
     </message>
     <message>
-        <location filename="../src/app/mainwindow.cpp" line="554"/>
+        <location filename="../src/app/mainwindow.cpp" line="599"/>
         <source>Google Calendar unavailable — showing saved data</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/app/mainwindow.cpp" line="566"/>
+        <location filename="../src/app/mainwindow.cpp" line="611"/>
         <source>Reconnected to Google Calendar</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/app/mainwindow.cpp" line="613"/>
+        <location filename="../src/app/mainwindow.cpp" line="658"/>
         <source>This event is no longer available.</source>
         <translation>This event is no longer available.</translation>
     </message>
     <message>
-        <location filename="../src/app/mainwindow.cpp" line="646"/>
+        <location filename="../src/app/mainwindow.cpp" line="691"/>
         <source>(No title)</source>
         <translation>(No title)</translation>
     </message>
     <message>
-        <location filename="../src/app/mainwindow.cpp" line="649"/>
+        <location filename="../src/app/mainwindow.cpp" line="694"/>
         <source>Delete &quot;%1&quot;? This will remove only this occurrence of the recurring event. This can&apos;t be undone.</source>
         <translation>Delete &quot;%1&quot;? This will remove only this occurrence of the recurring event. This can&apos;t be undone.</translation>
     </message>
     <message>
-        <location filename="../src/app/mainwindow.cpp" line="650"/>
+        <location filename="../src/app/mainwindow.cpp" line="695"/>
         <source>Delete &quot;%1&quot;? This can&apos;t be undone.</source>
         <translation>Delete &quot;%1&quot;? This can&apos;t be undone.</translation>
     </message>
     <message>
-        <location filename="../src/app/mainwindow.cpp" line="651"/>
+        <location filename="../src/app/mainwindow.cpp" line="696"/>
         <source>Delete Event</source>
         <translation>Delete Event</translation>
     </message>
     <message>
-        <location filename="../src/app/mainwindow.cpp" line="679"/>
+        <location filename="../src/app/mainwindow.cpp" line="724"/>
         <source>Event updated.</source>
         <translation>Event updated.</translation>
     </message>
     <message>
-        <location filename="../src/app/mainwindow.cpp" line="681"/>
+        <location filename="../src/app/mainwindow.cpp" line="726"/>
         <source>Event deleted.</source>
         <translation>Event deleted.</translation>
     </message>
@@ -472,7 +482,7 @@
 <context>
     <name>MonthEventsController</name>
     <message>
-        <location filename="../src/calendar/montheventscontroller.cpp" line="143"/>
+        <location filename="../src/calendar/montheventscontroller.cpp" line="154"/>
         <source>Could not load events for &quot;%1&quot;: %2</source>
         <translation>Could not load events for &quot;%1&quot;: %2</translation>
     </message>
@@ -551,7 +561,7 @@
 <context>
     <name>TimeGridEventsController</name>
     <message>
-        <location filename="../src/calendar/timegrideventscontroller.cpp" line="143"/>
+        <location filename="../src/calendar/timegrideventscontroller.cpp" line="153"/>
         <source>Could not load events for &quot;%1&quot;: %2</source>
         <translation type="unfinished">Could not load events for &quot;%1&quot;: %2</translation>
     </message>
