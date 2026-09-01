@@ -35,3 +35,26 @@ QHash<QDate, QList<MonthDayEventItem>> EventGrouping::groupByDate(const QList<Ev
     }
     return result;
 }
+
+bool EventGrouping::containsEventOnAnyDate(
+    const QHash<QString, QHash<QDate, QList<MonthDayEventItem>>> &groupedByCalendar,
+    const QString &calendarId, const QString &eventId, const QList<QDate> &dates)
+{
+    if (eventId.isEmpty())
+        return false;
+
+    const auto calIt = groupedByCalendar.constFind(calendarId);
+    if (calIt == groupedByCalendar.constEnd())
+        return false;
+
+    for (const QDate &date : dates) {
+        const auto dateIt = calIt->constFind(date);
+        if (dateIt == calIt->constEnd())
+            continue;
+        for (const MonthDayEventItem &item : dateIt.value()) {
+            if (item.eventId == eventId)
+                return true;
+        }
+    }
+    return false;
+}

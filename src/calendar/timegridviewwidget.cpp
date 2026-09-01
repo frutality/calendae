@@ -1,6 +1,7 @@
 #include "timegridviewwidget.h"
 #include "ui_timegridviewwidget.h"
 
+#include "eventgrouping.h"
 #include "timegridalldaycellwidget.h"
 #include "timegriddaycolumnwidget.h"
 #include "timegridhourgutterwidget.h"
@@ -165,23 +166,21 @@ void TimeGridViewWidget::refreshEventSelection()
     if (m_selectedEventId.isEmpty())
         return;
 
-    bool stillPresent = false;
-    const auto calIt = m_eventsByCalendar.constFind(m_selectedEventCalendarId);
-    if (calIt != m_eventsByCalendar.constEnd()) {
-        for (auto dateIt = calIt->constBegin(); dateIt != calIt->constEnd() && !stillPresent; ++dateIt) {
-            for (const MonthDayEventItem &item : dateIt.value()) {
-                if (item.eventId == m_selectedEventId) {
-                    stillPresent = true;
-                    break;
-                }
-            }
-        }
-    }
+    // m_eventsByCalendar holds a whole month per calendar, but only the
+    // visible range is rendered as pills. Scope the check to the on-screen
+    // days: a selection whose event a background refresh moved off-range —
+    // or removed — must drop, or Delete-Selected would act on an event the
+    // user can't see. When it's still visible, the rebuilt pills are
+    // re-highlighted by each cell/column's own applyEventSelection().
+    QList<QDate> visibleDates;
+    visibleDates.reserve(m_dayCount);
+    for (int i = 0; i < m_dayCount; ++i)
+        visibleDates.append(m_rangeStart.addDays(i));
 
-    // When still present, the freshly rebuilt pills are already re-highlighted
-    // by each cell/column's own applyEventSelection()/relayoutEvents().
-    if (!stillPresent)
+    if (!EventGrouping::containsEventOnAnyDate(m_eventsByCalendar, m_selectedEventCalendarId,
+                                              m_selectedEventId, visibleDates)) {
         clearEventSelection();
+    }
 }
 
 QPoint TimeGridViewWidget::scrollPosition() const

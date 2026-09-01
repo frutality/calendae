@@ -1,6 +1,7 @@
 #include "monthviewwidget.h"
 #include "ui_monthviewwidget.h"
 
+#include "eventgrouping.h"
 #include "monthdaycellwidget.h"
 #include "monthgrid.h"
 
@@ -233,24 +234,15 @@ void MonthViewWidget::refreshEventSelection()
     if (m_selectedEventId.isEmpty())
         return;
 
-    bool stillPresent = false;
-    const auto calIt = m_eventsByCalendar.constFind(m_selectedEventCalendarId);
-    if (calIt != m_eventsByCalendar.constEnd()) {
-        for (auto dateIt = calIt->constBegin(); dateIt != calIt->constEnd() && !stillPresent; ++dateIt) {
-            for (const MonthDayEventItem &item : dateIt.value()) {
-                if (item.eventId == m_selectedEventId) {
-                    stillPresent = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    // When still present, the freshly rebuilt pills are already re-highlighted
-    // by each cell's own applyEventSelection() (it keeps the ids across a
-    // setEvents()); nothing more to do here.
-    if (!stillPresent)
+    // Scoped to the 42 rendered cells (m_cellByDate): a selection can't
+    // survive on an event a refresh pushed outside the visible grid, or
+    // Delete-Selected would act on an off-screen event. When it's still
+    // present, the rebuilt pills are re-highlighted by each cell's own
+    // applyEventSelection() (it keeps the ids across a setEvents()).
+    if (!EventGrouping::containsEventOnAnyDate(m_eventsByCalendar, m_selectedEventCalendarId,
+                                              m_selectedEventId, m_cellByDate.keys())) {
         clearEventSelection();
+    }
 }
 
 QPoint MonthViewWidget::scrollPosition() const
