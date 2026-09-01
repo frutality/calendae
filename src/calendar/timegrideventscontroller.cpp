@@ -18,6 +18,7 @@ TimeGridEventsController::TimeGridEventsController(AuthManager *authManager, Mon
     connect(m_view, &TimeGridViewWidget::displayedRangeChanged, this, &TimeGridEventsController::onDisplayedRangeChanged);
     connect(m_store, &MonthEventStore::bucketUpdated, this, &TimeGridEventsController::onBucketUpdated);
     connect(m_store, &MonthEventStore::bucketFetchFailed, this, &TimeGridEventsController::onBucketFetchFailed);
+    connect(m_store, &MonthEventStore::bucketRefreshFailed, this, &TimeGridEventsController::onBucketRefreshFailed);
 }
 
 bool TimeGridEventsController::ready() const
@@ -158,6 +159,23 @@ void TimeGridEventsController::onBucketFetchFailed(const QDate &monthKey, const 
     if (!transient) {
         const QString calendarName = m_calendarsById.contains(calendarId) ? m_calendarsById.value(calendarId).summary : calendarId;
         emit eventFetchFailed(tr("Could not load events for \"%1\": %2").arg(calendarName, message));
+    }
+
+    maybeEmitCycleFinished();
+}
+
+void TimeGridEventsController::onBucketRefreshFailed(const QDate &monthKey, const QString &calendarId,
+                                                     const QString &message, bool transient)
+{
+    if (!currentMonthKeys().contains(monthKey))
+        return;
+
+    // See MonthEventsController::onBucketRefreshFailed: stale events stay on
+    // screen, a non-transient failure is otherwise silent, and the cycle
+    // still needs settling for fetchCycleFinished().
+    if (!transient) {
+        const QString calendarName = m_calendarsById.contains(calendarId) ? m_calendarsById.value(calendarId).summary : calendarId;
+        emit eventFetchFailed(tr("Could not refresh events for \"%1\": %2").arg(calendarName, message));
     }
 
     maybeEmitCycleFinished();

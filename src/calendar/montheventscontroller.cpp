@@ -19,6 +19,7 @@ MonthEventsController::MonthEventsController(AuthManager *authManager, MonthEven
     connect(m_monthView, &MonthViewWidget::displayedMonthChanged, this, &MonthEventsController::onDisplayedMonthChanged);
     connect(m_store, &MonthEventStore::bucketUpdated, this, &MonthEventsController::onBucketUpdated);
     connect(m_store, &MonthEventStore::bucketFetchFailed, this, &MonthEventsController::onBucketFetchFailed);
+    connect(m_store, &MonthEventStore::bucketRefreshFailed, this, &MonthEventsController::onBucketRefreshFailed);
 }
 
 bool MonthEventsController::ready() const
@@ -161,6 +162,25 @@ void MonthEventsController::onBucketFetchFailed(const QDate &monthKey, const QSt
     if (!transient) {
         const QString calendarName = m_calendarsById.contains(calendarId) ? m_calendarsById.value(calendarId).summary : calendarId;
         emit eventFetchFailed(tr("Could not load events for \"%1\": %2").arg(calendarName, message));
+    }
+
+    maybeEmitCycleFinished();
+}
+
+void MonthEventsController::onBucketRefreshFailed(const QDate &monthKey, const QString &calendarId,
+                                                  const QString &message, bool transient)
+{
+    if (!currentMonthKeys().contains(monthKey))
+        return;
+
+    // Previously-loaded events for this bucket are still on screen. A
+    // transient failure is the window's global connectivity indicator's
+    // job; a non-transient one (HTTP 500, or 403 after losing access to a
+    // calendar) would otherwise be entirely silent. Either way the cycle
+    // still has to be settled so fetchCycleFinished() fires.
+    if (!transient) {
+        const QString calendarName = m_calendarsById.contains(calendarId) ? m_calendarsById.value(calendarId).summary : calendarId;
+        emit eventFetchFailed(tr("Could not refresh events for \"%1\": %2").arg(calendarName, message));
     }
 
     maybeEmitCycleFinished();
