@@ -208,7 +208,14 @@ void MonthDayCellWidget::rebuildEventWidgets()
         auto *pill = new EventPillLabel(item, this);
         pill->setToolTip(rawText);
         connect(pill, &EventPillLabel::singleClicked, this, [this](const QString &calendarId, const QString &eventId) {
-            emit clicked(m_date);
+            // A pill click selects the event and, for a day in the displayed
+            // month, moves the day highlight too. It must NOT navigate:
+            // emitting clicked() for a fringe (adjacent-month) cell routes
+            // through selectDate(), which rebuilds the whole grid — clearing
+            // the selection we're about to set and re-fetching events —
+            // before eventClicked() is even delivered.
+            if (m_inCurrentMonth)
+                emit clicked(m_date);
             emit eventClicked(calendarId, eventId);
         });
         connect(pill, &EventPillLabel::editRequested, this, &MonthDayCellWidget::eventEditRequested);
