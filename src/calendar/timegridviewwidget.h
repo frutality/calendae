@@ -93,6 +93,7 @@ private:
     int m_dayCount;
     QDate m_rangeStart;
     QDate m_selectedDate;
+    QDate m_lastSeenDate; // for the day-rollover check in m_nowLineTimer's handler
     QString m_selectedEventCalendarId;
     QString m_selectedEventId;
 

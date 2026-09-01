@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QLocale>
 #include <QScrollBar>
+#include <QTimer>
 #include <algorithm>
 
 MonthViewWidget::MonthViewWidget(QWidget *parent)
@@ -48,10 +49,24 @@ MonthViewWidget::MonthViewWidget(QWidget *parent)
     const QDate today = QDate::currentDate();
     m_displayedMonth = QDate(today.year(), today.month(), 1);
     m_selectedDate = today;
+    m_lastSeenDate = today;
 
     refreshCells();
     updateMonthYearLabel();
     updateCellStates();
+
+    // With the app left open past local midnight, nothing else recomputes
+    // which cell is "today". Poll once a minute and re-mark on a rollover
+    // (the displayed month is deliberately NOT navigated).
+    auto *dayRolloverTimer = new QTimer(this);
+    connect(dayRolloverTimer, &QTimer::timeout, this, [this] {
+        const QDate now = QDate::currentDate();
+        if (m_lastSeenDate == now)
+            return;
+        m_lastSeenDate = now;
+        updateCellStates();
+    });
+    dayRolloverTimer->start(60'000);
 }
 
 MonthViewWidget::~MonthViewWidget()

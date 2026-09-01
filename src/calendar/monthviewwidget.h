@@ -86,6 +86,7 @@ private:
     Ui::MonthViewWidget *ui;
     QDate m_displayedMonth;
     QDate m_selectedDate;
+    QDate m_lastSeenDate; // for the day-rollover watcher (see the ctor timer)
     QString m_selectedEventCalendarId;
     QString m_selectedEventId;
     QVector<MonthDayCellWidget *> m_cells; // 42, row-major, created once

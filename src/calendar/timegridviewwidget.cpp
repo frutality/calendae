@@ -112,6 +112,14 @@ TimeGridViewWidget::TimeGridViewWidget(int dayCount, QWidget *parent)
 
     m_nowLineTimer = new QTimer(this);
     connect(m_nowLineTimer, &QTimer::timeout, this, [this] {
+        // Past local midnight nothing else moves the "today" marker off
+        // yesterday's column (and refreshNowLine() is a no-op on a column
+        // that still thinks it's today). Re-mark on a date rollover.
+        const QDate now = QDate::currentDate();
+        if (m_lastSeenDate != now) {
+            m_lastSeenDate = now;
+            updateHeaderAndColumnStates();
+        }
         for (TimeGridDayColumnWidget *column : std::as_const(m_dayColumns))
             column->refreshNowLine();
     });
@@ -119,6 +127,7 @@ TimeGridViewWidget::TimeGridViewWidget(int dayCount, QWidget *parent)
 
     const QDate today = QDate::currentDate();
     m_selectedDate = today;
+    m_lastSeenDate = today;
     m_rangeStart = (m_dayCount == 7) ? TimeGridRange::weekStart(today, QLocale::system().firstDayOfWeek()) : today;
 
     refreshColumns();
