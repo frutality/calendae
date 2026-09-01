@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QIcon>
+#include <QLibraryInfo>
 #include <QLocale>
 #include <QTranslator>
 
@@ -23,12 +24,21 @@ int main(int argc, char *argv[])
     QApplication::setWindowIcon(
         QIcon::fromTheme(QStringLiteral("calendae"), fallbackIcon));
 
-    QTranslator translator;
+    QTranslator appTranslator;
+    QTranslator qtTranslator;
     const QStringList uiLanguages = QLocale::system().uiLanguages();
     for (const QString &locale : uiLanguages) {
-        const QString baseName = "calendae_" + QLocale(locale).name();
-        if (translator.load(":/i18n/" + baseName)) {
-            a.installTranslator(&translator);
+        const QString localeName = QLocale(locale).name();
+        if (appTranslator.load(":/i18n/calendae_" + localeName)) {
+            a.installTranslator(&appTranslator);
+            // Qt's own strings for the same locale — the standard
+            // QMessageBox / QDialogButtonBox buttons, the QLineEdit context
+            // menu, etc. Best-effort: a given Qt install may not ship this
+            // locale's qtbase_*.qm.
+            if (qtTranslator.load("qtbase_" + localeName,
+                                   QLibraryInfo::path(QLibraryInfo::TranslationsPath))) {
+                a.installTranslator(&qtTranslator);
+            }
             break;
         }
     }
