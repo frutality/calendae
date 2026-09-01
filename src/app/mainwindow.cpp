@@ -269,9 +269,7 @@ void MainWindow::connectEventSelection()
                 if (requestId != m_pendingStandaloneDeleteRequestId)
                     return;
                 m_pendingStandaloneDeleteRequestId = 0;
-                m_monthEventStore->invalidateCalendar(calendarId);
-                for (EventsController *controller : std::as_const(m_eventsControllers))
-                    controller->refreshCalendar(calendarId);
+                reloadCalendarAfterMutation(calendarId);
                 clearEventSelectionAllViews();
                 updateDeleteEventActionEnabled();
                 statusBar()->showMessage(tr("Event deleted."), 4000);
@@ -334,6 +332,13 @@ void MainWindow::performEventDelete(const QString &calendarId, const QString &ev
     m_pendingStandaloneDeleteRequestId = m_nextEventDeleteRequestId++;
     updateDeleteEventActionEnabled();
     m_calendarApi->deleteEvent(m_pendingStandaloneDeleteRequestId, calendarId, eventId);
+}
+
+void MainWindow::reloadCalendarAfterMutation(const QString &calendarId)
+{
+    m_monthEventStore->invalidateCalendar(calendarId);
+    for (EventsController *controller : std::as_const(m_eventsControllers))
+        controller->refreshCalendar(calendarId);
 }
 
 QString MainWindow::eventDeleteConfirmationText(const Event &event) const
@@ -677,11 +682,7 @@ void MainWindow::openNewEventDialog(const QDate &date, const std::optional<QTime
             [this, &dialog, &pendingRequestId](quint64 requestId, const QString &calendarId) {
                 if (requestId != pendingRequestId)
                     return;
-                // Drop the shared cache for this calendar once, then let
-                // every controller re-pull the range it currently shows.
-                m_monthEventStore->invalidateCalendar(calendarId);
-                for (EventsController *controller : std::as_const(m_eventsControllers))
-                    controller->refreshCalendar(calendarId);
+                reloadCalendarAfterMutation(calendarId);
                 dialog.accept();
             });
     connect(m_calendarApi, &GoogleCalendarApi::eventCreateFailed, &dialog,
@@ -820,9 +821,7 @@ void MainWindow::openEditEventDialog(const QString &calendarId, const QString &e
             [this, &dialog, &pendingRequestId](quint64 requestId, const QString &calendarId, const QString &) {
                 if (requestId != pendingRequestId)
                     return;
-                m_monthEventStore->invalidateCalendar(calendarId);
-                for (EventsController *controller : std::as_const(m_eventsControllers))
-                    controller->refreshCalendar(calendarId);
+                reloadCalendarAfterMutation(calendarId);
                 dialog.accept();
             });
     connect(m_calendarApi, &GoogleCalendarApi::eventUpdateFailed, &dialog,
@@ -849,9 +848,7 @@ void MainWindow::openEditEventDialog(const QString &calendarId, const QString &e
             [this, &dialog, &pendingDeleteRequestId](quint64 requestId, const QString &calendarId, const QString &) {
                 if (requestId != pendingDeleteRequestId)
                     return;
-                m_monthEventStore->invalidateCalendar(calendarId);
-                for (EventsController *controller : std::as_const(m_eventsControllers))
-                    controller->refreshCalendar(calendarId);
+                reloadCalendarAfterMutation(calendarId);
                 dialog.done(EventDialog::DeletedResult);
             });
     connect(m_calendarApi, &GoogleCalendarApi::eventDeleteFailed, &dialog,

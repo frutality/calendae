@@ -90,6 +90,11 @@ private:
     void performEventDelete(const QString &calendarId, const QString &eventId);
     QString eventDeleteConfirmationText(const Event &event) const;
 
+    // After an event create / update / delete lands: drop the shared
+    // month-store cache for that calendar once, then let every controller
+    // re-pull the range it currently shows.
+    void reloadCalendarAfterMutation(const QString &calendarId);
+
     // Whichever view (month/week/day) is on screen when the calendar list
     // loads populates eagerly; the other two populate lazily, on first
     // switch to them. No-op if calendars haven't loaded yet or this
