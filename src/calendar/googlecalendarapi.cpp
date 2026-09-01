@@ -9,8 +9,15 @@
 #include <QUrl>
 #include <QUrlQuery>
 
+#include <utility>
+
 namespace {
 const QUrl kCalendarListEndpoint(QStringLiteral("https://www.googleapis.com/calendar/v3/users/me/calendarList"));
+
+// A bounded [timeMin, timeMax) window can't legitimately need many pages
+// (Google's default is 250 events/page). This only trips on an anomaly —
+// a runaway calendar or a nextPageToken that never clears.
+constexpr int kMaxEventPages = 40;
 
 QString calendarListEntryUrl(const QString &calendarId)
 {
@@ -283,12 +290,13 @@ quint64 GoogleCalendarApi::fetchEvents(const QString &calendarId, const QString 
 
 void GoogleCalendarApi::fetchEventsPage(quint64 requestId, const QString &calendarId,
                                          const QString &timeMinRfc3339, const QString &timeMaxRfc3339,
-                                         const QString &pageToken, QList<Event> accumulated)
+                                         const QString &pageToken, QList<Event> accumulated, int pagesFetched)
 {
     const QUrl url = buildEventsListUrl(calendarId, timeMinRfc3339, timeMaxRfc3339, pageToken);
     QNetworkReply *reply = m_network->get(authorizedRequest(url));
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, requestId, calendarId, timeMinRfc3339, timeMaxRfc3339, accumulated]() mutable {
+            [this, reply, requestId, calendarId, timeMinRfc3339, timeMaxRfc3339,
+             accumulated = std::move(accumulated), pagesFetched]() mutable {
                 reply->deleteLater();
 
                 const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -319,7 +327,13 @@ void GoogleCalendarApi::fetchEventsPage(quint64 requestId, const QString &calend
                 accumulated.append(*page);
 
                 if (!nextPageToken.isEmpty()) {
-                    fetchEventsPage(requestId, calendarId, timeMinRfc3339, timeMaxRfc3339, nextPageToken, accumulated);
+                    if (pagesFetched + 1 >= kMaxEventPages) {
+                        emit eventsFetchFailed(requestId, calendarId,
+                                                tr("Could not load events: too many result pages."), false);
+                        return;
+                    }
+                    fetchEventsPage(requestId, calendarId, timeMinRfc3339, timeMaxRfc3339,
+                                    nextPageToken, std::move(accumulated), pagesFetched + 1);
                     return;
                 }
 

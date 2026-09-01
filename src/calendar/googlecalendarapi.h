@@ -108,7 +108,8 @@ signals:
 private:
     QNetworkRequest authorizedRequest(const QUrl &url) const;
     void fetchEventsPage(quint64 requestId, const QString &calendarId, const QString &timeMinRfc3339,
-                          const QString &timeMaxRfc3339, const QString &pageToken, QList<Event> accumulated);
+                          const QString &timeMaxRfc3339, const QString &pageToken, QList<Event> accumulated,
+                          int pagesFetched = 0);
 
     AuthManager *m_authManager;
     QNetworkAccessManager *m_network;
