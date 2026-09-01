@@ -1,6 +1,7 @@
 #ifndef TIMEGRIDVIEWWIDGET_H
 #define TIMEGRIDVIEWWIDGET_H
 
+#include "eventgridview.h"
 #include "montheventitem.h"
 
 #include <QDate>
@@ -29,7 +30,7 @@ class TimeGridDayColumnWidget;
 // pinned to a strip above the scrollable grid. Carries no event data of
 // its own — TimeGridEventsController pushes it in per-calendar, same
 // contract as MonthViewWidget.
-class TimeGridViewWidget : public QWidget
+class TimeGridViewWidget : public QWidget, public EventGridView
 {
     Q_OBJECT
 public:
@@ -62,9 +63,10 @@ public slots:
     void goToToday();
     void selectDate(const QDate &date);
 
-    void setEventsForCalendar(const QString &calendarId, const QHash<QDate, QList<MonthDayEventItem>> &eventsByDate);
-    void clearEventsForCalendar(const QString &calendarId);
-    void clearAllEvents();
+    void setEventsForCalendar(const QString &calendarId,
+                               const QHash<QDate, QList<MonthDayEventItem>> &eventsByDate) override;
+    void clearEventsForCalendar(const QString &calendarId) override;
+    void clearAllEvents() override;
 
     // Drops the selected-event highlight (if any) and notifies via
     // eventSelectionChanged with empty ids. Same contract as

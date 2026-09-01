@@ -107,7 +107,10 @@ add_library(tgc_calendar STATIC
     src/calendar/eventgrouping.h
     src/calendar/eventgrouping.cpp
     src/calendar/eventscontroller.h
+    src/calendar/eventgridview.h
     src/calendar/montheventitem.h
+    src/calendar/storebackedeventscontroller.h
+    src/calendar/storebackedeventscontroller.cpp
     src/calendar/montheventscontroller.h
     src/calendar/montheventscontroller.cpp
     src/calendar/timegridrange.h

@@ -1,6 +1,7 @@
 #ifndef MONTHVIEWWIDGET_H
 #define MONTHVIEWWIDGET_H
 
+#include "eventgridview.h"
 #include "montheventitem.h"
 
 #include <QDate>
@@ -21,7 +22,7 @@ class MonthDayCellWidget;
 // The month-view grid: navigable and selectable, but carries no event data
 // of its own (that's wired in by a later milestone via dateSelected /
 // displayedMonthChanged).
-class MonthViewWidget : public QWidget
+class MonthViewWidget : public QWidget, public EventGridView
 {
     Q_OBJECT
 public:
@@ -52,9 +53,10 @@ public slots:
     void goToToday();
     void selectDate(const QDate &date);
 
-    void setEventsForCalendar(const QString &calendarId, const QHash<QDate, QList<MonthDayEventItem>> &eventsByDate);
-    void clearEventsForCalendar(const QString &calendarId);
-    void clearAllEvents();
+    void setEventsForCalendar(const QString &calendarId,
+                               const QHash<QDate, QList<MonthDayEventItem>> &eventsByDate) override;
+    void clearEventsForCalendar(const QString &calendarId) override;
+    void clearAllEvents() override;
 
     // Drops the selected-event highlight (if any) and notifies via
     // eventSelectionChanged with empty ids. Called on navigation, view
