@@ -157,6 +157,20 @@ qt_add_executable(calendae
     src/app/desktopnotifier.cpp
 )
 
+# Window icon, baked in so a dev build has an icon without `make install`.
+qt_add_resources(calendae "app_icons"
+    PREFIX "/icons"
+    BASE resources/icons
+    FILES
+        resources/icons/calendae-16.png
+        resources/icons/calendae-24.png
+        resources/icons/calendae-32.png
+        resources/icons/calendae-48.png
+        resources/icons/calendae-64.png
+        resources/icons/calendae-128.png
+        resources/icons/calendae-256.png
+)
+
 qt_add_translations(
     TARGETS calendae
     TS_FILES translations/calendae_en_001.ts
@@ -174,6 +188,21 @@ install(TARGETS calendae
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
+
+# Freedesktop integration (Linux): the .desktop file plus a themed "calendae"
+# icon are what let the KDE task manager and System Monitor show an icon for
+# the running app. Harmless no-ops on the WIN32/macOS bundle builds.
+if(UNIX AND NOT APPLE)
+    install(FILES resources/calendae.desktop
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
+    )
+    foreach(_icon_size IN ITEMS 16 22 24 32 48 64 128 256 512)
+        install(FILES resources/icons/calendae-${_icon_size}.png
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/${_icon_size}x${_icon_size}/apps
+            RENAME calendae.png
+        )
+    endforeach()
+endif()
 
 qt_generate_deploy_app_script(
     TARGET calendae

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Calendae
+GenericName=Calendar
+Comment=Lightweight Google Calendar client
+Exec=calendae
+Icon=calendae
+Terminal=false
+Categories=Office;Calendar;Qt;
+Keywords=calendar;google;event;schedule;
+StartupNotify=true
+StartupWMClass=calendae
