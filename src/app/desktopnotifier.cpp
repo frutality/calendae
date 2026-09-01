@@ -9,6 +9,13 @@
 namespace {
 Q_LOGGING_CATEGORY(lcNotify, "tgc.notify")
 
+// Our own named connection, opened lazily and retried on each use. The
+// default QDBusConnection::sessionBus() caches its first connect attempt
+// for the whole process, so a failure at startup (autostarted before the
+// session bus / user session was ready) would disable notifications
+// forever.
+const QString kBusName = QStringLiteral("calendae-notify");
+
 QString leadTimePhrase(int minutesBefore)
 {
     if (minutesBefore <= 0)
@@ -27,16 +34,34 @@ QString leadTimePhrase(int minutesBefore)
 
 DesktopNotifier::DesktopNotifier(QObject *parent)
     : QObject(parent)
-    , m_busAvailable(QDBusConnection::sessionBus().isConnected())
 {
-    if (!m_busAvailable)
-        qCWarning(lcNotify) << "no session D-Bus connection; desktop notifications are disabled";
+}
+
+DesktopNotifier::~DesktopNotifier()
+{
+    QDBusConnection::disconnectFromBus(kBusName);
+}
+
+QDBusConnection DesktopNotifier::sessionBus()
+{
+    // The process's default session bus, if it did connect, is fine to use.
+    QDBusConnection defaultBus = QDBusConnection::sessionBus();
+    if (defaultBus.isConnected())
+        return defaultBus;
+
+    // Otherwise (re)open our own — a fresh connect attempt each time, so a
+    // bus that only came up after startup is picked up on the next reminder.
+    if (QDBusConnection existing(kBusName); existing.isConnected())
+        return existing;
+    QDBusConnection::disconnectFromBus(kBusName); // drop any dead handle first
+    return QDBusConnection::connectToBus(QDBusConnection::SessionBus, kBusName);
 }
 
 void DesktopNotifier::notify(const DueReminder &reminder)
 {
-    if (!m_busAvailable) {
-        qCWarning(lcNotify) << "notify() called but no session D-Bus; dropping" << reminder.title;
+    QDBusConnection bus = sessionBus();
+    if (!bus.isConnected()) {
+        qCWarning(lcNotify) << "no session D-Bus; dropping notification" << reminder.title;
         return;
     }
 
@@ -68,6 +93,6 @@ void DesktopNotifier::notify(const DueReminder &reminder)
 
     // Fire-and-forget: the Notify reply is just a notification id we have no
     // use for, so send without waiting for it.
-    const bool queued = QDBusConnection::sessionBus().send(message);
+    const bool queued = bus.send(message);
     qCDebug(lcNotify) << "dispatched notification" << title << "queued=" << queued;
 }

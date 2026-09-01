@@ -141,9 +141,12 @@ void MainWindow::connectAuth()
     m_restoreRetryTimer = new QTimer(this);
     m_restoreRetryTimer->setInterval(60 * 1000);
     connect(m_restoreRetryTimer, &QTimer::timeout, this, [this] {
-        if (m_authManager->state() == AuthManager::AuthState::SignedOut
-            && m_authManager->lastSignOutReason() == AuthManager::SignOutReason::NetworkUnavailable) {
-            m_authManager->restoreSession();
+        if (m_authManager->state() != AuthManager::AuthState::SignedOut)
+            return;
+        const auto reason = m_authManager->lastSignOutReason();
+        if (reason == AuthManager::SignOutReason::NetworkUnavailable
+            || reason == AuthManager::SignOutReason::CredentialStoreUnavailable) {
+            m_authManager->restoreSession(); // re-reads the keychain and re-tries the token refresh
         }
     });
 
@@ -608,6 +611,10 @@ void MainWindow::updateUiForState(AuthManager::AuthState state)
         case AuthManager::SignOutReason::NetworkUnavailable:
             ui->authStatusLabel->setText(tr("Can't reach Google. Waiting for a connection…"));
             m_restoreRetryTimer->start(); // silent restore keeps trying in the background
+            break;
+        case AuthManager::SignOutReason::CredentialStoreUnavailable:
+            ui->authStatusLabel->setText(tr("Can't open the system credential store — retrying in the background."));
+            m_restoreRetryTimer->start();
             break;
         case AuthManager::SignOutReason::SessionExpired:
             ui->authStatusLabel->setText(tr("Your session has expired. Please sign in again."));

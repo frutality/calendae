@@ -218,9 +218,10 @@ void AuthManager::readStoredRefreshToken()
                 return;
             }
             // Retries exhausted: the token is presumed still on disk, so
-            // this is "couldn't read it now", not "no session" — the UI can
-            // keep silently retrying restore in the background.
-            m_lastSignOutReason = SignOutReason::NetworkUnavailable;
+            // this is "couldn't read it now", not "no session". Flag it as
+            // a credential-store problem (not a Google one) so the UI can
+            // say so accurately and keep retrying restore in the background.
+            m_lastSignOutReason = SignOutReason::CredentialStoreUnavailable;
             setState(AuthState::SignedOut);
             emit errorOccurred(tr("The system credential store is unavailable. Please sign in again."));
             return;

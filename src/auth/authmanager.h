@@ -43,10 +43,12 @@ public:
     // decide whether a silent restore retry is worth attempting, instead
     // of one generic "not signed in".
     enum class SignOutReason {
-        None,               // never signed in, or an explicit sign-out
-        NetworkUnavailable, // couldn't reach Google / the credential store — a later retry may succeed
-        SessionExpired,     // the stored refresh token was rejected — interactive sign-in required
-        SignInFailed,       // an interactive sign-in didn't complete
+        None,                     // never signed in, or an explicit sign-out
+        NetworkUnavailable,       // couldn't reach Google to restore — a later retry may succeed
+        CredentialStoreUnavailable, // the OS credential store wasn't reachable (e.g. KWallet/D-Bus
+                                  // not up yet at login autostart) — a background retry may succeed
+        SessionExpired,           // the stored refresh token was rejected — interactive sign-in required
+        SignInFailed,             // an interactive sign-in didn't complete
     };
     Q_ENUM(SignOutReason)
 
