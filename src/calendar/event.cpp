@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLoggingCategory>
+#include <QTime>
 
 namespace {
 Q_LOGGING_CATEGORY(lcEvent, "tgc.event")
@@ -183,4 +184,21 @@ std::optional<Event> Event::fromCbor(const QCborMap &map)
     }
 
     return event;
+}
+
+QDate Event::lastInclusiveLocalDate() const
+{
+    QDate last;
+    if (allDay) {
+        last = endDate.addDays(-1);
+    } else {
+        const QDateTime localEnd = endDateTime.toLocalTime();
+        last = localEnd.date();
+        // Ending at exactly 00:00 means the event closes at the very start
+        // of that day and occupies none of it, so the last day it actually
+        // covers is the one before.
+        if (localEnd.time() == QTime(0, 0) && last > startDate)
+            last = last.addDays(-1);
+    }
+    return last < startDate ? startDate : last;
 }

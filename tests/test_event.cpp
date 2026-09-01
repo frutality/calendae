@@ -1,6 +1,8 @@
 #include "calendar/event.h"
 
+#include <QDateTime>
 #include <QTest>
+#include <QTimeZone>
 #include <ctime>
 
 class TestEvent : public QObject
@@ -23,6 +25,8 @@ private slots:
     void cborRoundTripsTimedEventWithReminders();
     void fromCborRejectsEntryMissingId();
     void fromCborRejectsEntryMissingDateFields();
+    void lastInclusiveLocalDate_data();
+    void lastInclusiveLocalDate();
 };
 
 void TestEvent::parsesAllDayEvent()
@@ -358,6 +362,62 @@ void TestEvent::fromCborRejectsEntryMissingDateFields()
     source.id = QStringLiteral("x");
     source.allDay = false; // needs a dateTime pair, which is absent
     QVERIFY(!Event::fromCbor(source.toCbor()).has_value());
+}
+
+void TestEvent::lastInclusiveLocalDate_data()
+{
+    QTest::addColumn<bool>("allDay");
+    QTest::addColumn<QDate>("startDate");
+    QTest::addColumn<QDate>("endDate");
+    QTest::addColumn<QDateTime>("startDateTime");
+    QTest::addColumn<QDateTime>("endDateTime");
+    QTest::addColumn<QDate>("expected");
+
+    const QTimeZone tz(QTimeZone::LocalTime);
+    const QDate d1(2026, 9, 1);
+
+    QTest::newRow("all-day single day")
+        << true << d1 << d1.addDays(1) << QDateTime() << QDateTime() << d1;
+    QTest::newRow("all-day three days")
+        << true << d1 << d1.addDays(3) << QDateTime() << QDateTime() << d1.addDays(2);
+    QTest::newRow("all-day inverted range clamps to start")
+        << true << d1 << d1 << QDateTime() << QDateTime() << d1;
+
+    QTest::newRow("timed same day")
+        << false << d1 << d1
+        << QDateTime(d1, QTime(9, 0), tz) << QDateTime(d1, QTime(9, 30), tz) << d1;
+    // The regression: an evening meeting ending exactly at midnight is a
+    // single-day event, not a two-day one.
+    QTest::newRow("timed ends exactly at next midnight")
+        << false << d1 << d1.addDays(1)
+        << QDateTime(d1, QTime(22, 0), tz) << QDateTime(d1.addDays(1), QTime(0, 0), tz) << d1;
+    QTest::newRow("timed genuinely crosses midnight")
+        << false << d1 << d1.addDays(1)
+        << QDateTime(d1, QTime(23, 0), tz) << QDateTime(d1.addDays(1), QTime(0, 30), tz)
+        << d1.addDays(1);
+    QTest::newRow("timed multi-day ending at midnight drops only the empty final day")
+        << false << d1 << d1.addDays(2)
+        << QDateTime(d1, QTime(10, 0), tz) << QDateTime(d1.addDays(2), QTime(0, 0), tz)
+        << d1.addDays(1);
+}
+
+void TestEvent::lastInclusiveLocalDate()
+{
+    QFETCH(bool, allDay);
+    QFETCH(QDate, startDate);
+    QFETCH(QDate, endDate);
+    QFETCH(QDateTime, startDateTime);
+    QFETCH(QDateTime, endDateTime);
+    QFETCH(QDate, expected);
+
+    Event event;
+    event.allDay = allDay;
+    event.startDate = startDate;
+    event.endDate = endDate;
+    event.startDateTime = startDateTime;
+    event.endDateTime = endDateTime;
+
+    QCOMPARE(event.lastInclusiveLocalDate(), expected);
 }
 
 QTEST_APPLESS_MAIN(TestEvent)

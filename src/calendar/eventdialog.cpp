@@ -73,9 +73,7 @@ EventDialog::EventDialog(const Calendar &calendar, const Event &event, QWidget *
         ui->endTimeEdit->setTime(event.endDateTime.toLocalTime().time());
     }
 
-    const QDate lastDateInclusive = event.allDay ? event.endDate.addDays(-1)
-                                                  : event.endDateTime.toLocalTime().date();
-    m_multiDayEditUnsupported = lastDateInclusive != event.startDate;
+    m_multiDayEditUnsupported = event.lastInclusiveLocalDate() != event.startDate;
 
     int popupMinutes = -1;
     for (const EventReminder &reminder : event.reminderOverrides) {

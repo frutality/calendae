@@ -63,6 +63,15 @@ struct Event
     // skipped rather than resurrected half-populated.
     QCborMap toCbor() const;
     static std::optional<Event> fromCbor(const QCborMap &map);
+
+    // The last local calendar day this event actually occupies, as an
+    // *inclusive* date (unlike endDate, which is exclusive). For an all-day
+    // event that's endDate - 1; for a timed event it's the local date of
+    // endDateTime, except that an event ending at exactly local midnight
+    // stops at the very start of that day without occupying any of it
+    // (a 22:00-00:00 meeting is single-day), so it's the day before.
+    // Never precedes startDate — malformed/inverted ranges are clamped.
+    QDate lastInclusiveLocalDate() const;
 };
 
 #endif // EVENT_H

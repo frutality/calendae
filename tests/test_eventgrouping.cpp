@@ -10,6 +10,8 @@ private slots:
     void timedEventLandsOnItsStartDateWithInstantsSet();
     void allDaySingleDayEventLandsOnlyOnStartDate();
     void allDayMultiDayEventRepeatsOnEveryCoveredDay();
+    void timedEventEndingAtMidnightStaysOnStartDay();
+    void timedEventCrossingMidnightRepeatsOnBothDays();
     void missingSummaryFallsBackToNoTitle();
     void unknownCalendarFallsBackToGray();
     void spanIsCappedDefensively();
@@ -84,6 +86,46 @@ void TestEventGrouping::allDayMultiDayEventRepeatsOnEveryCoveredDay()
     QVERIFY(grouped.contains(QDate(2026, 8, 28)));
     QVERIFY(grouped.contains(QDate(2026, 8, 29)));
     QVERIFY(!grouped.contains(QDate(2026, 8, 30)));
+}
+
+void TestEventGrouping::timedEventEndingAtMidnightStaysOnStartDay()
+{
+    const QTimeZone localTimeZone(QTimeZone::LocalTime);
+    Event event;
+    event.id = QStringLiteral("evt-midnight");
+    event.calendarId = QStringLiteral("cal1");
+    event.summary = QStringLiteral("Evening meeting");
+    event.allDay = false;
+    event.startDate = QDate(2026, 9, 1);
+    event.endDate = QDate(2026, 9, 2); // local date of a 00:00 end instant
+    event.startDateTime = QDateTime(QDate(2026, 9, 1), QTime(22, 0), localTimeZone);
+    event.endDateTime = QDateTime(QDate(2026, 9, 2), QTime(0, 0), localTimeZone);
+
+    const QHash<QDate, QList<MonthDayEventItem>> grouped = EventGrouping::groupByDate({event}, {});
+
+    QCOMPARE(grouped.size(), 1);
+    QVERIFY(grouped.contains(QDate(2026, 9, 1)));
+    QVERIFY(!grouped.contains(QDate(2026, 9, 2)));
+}
+
+void TestEventGrouping::timedEventCrossingMidnightRepeatsOnBothDays()
+{
+    const QTimeZone localTimeZone(QTimeZone::LocalTime);
+    Event event;
+    event.id = QStringLiteral("evt-overnight");
+    event.calendarId = QStringLiteral("cal1");
+    event.summary = QStringLiteral("Night shift");
+    event.allDay = false;
+    event.startDate = QDate(2026, 9, 1);
+    event.endDate = QDate(2026, 9, 2);
+    event.startDateTime = QDateTime(QDate(2026, 9, 1), QTime(23, 0), localTimeZone);
+    event.endDateTime = QDateTime(QDate(2026, 9, 2), QTime(0, 30), localTimeZone);
+
+    const QHash<QDate, QList<MonthDayEventItem>> grouped = EventGrouping::groupByDate({event}, {});
+
+    QCOMPARE(grouped.size(), 2);
+    QVERIFY(grouped.contains(QDate(2026, 9, 1)));
+    QVERIFY(grouped.contains(QDate(2026, 9, 2)));
 }
 
 void TestEventGrouping::missingSummaryFallsBackToNoTitle()
