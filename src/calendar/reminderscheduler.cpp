@@ -92,11 +92,14 @@ void ReminderScheduler::refreshCalendar(const QString &calendarId)
     if (!m_calendarsById.contains(calendarId))
         return;
 
+    // Drop the now-stale cached events and immediately re-plan from what's
+    // left: a one-shot timer already armed for an event that was just
+    // deleted or rescheduled must not survive to fire before the re-fetch
+    // reply lands (which may fail transiently and only log).
     m_upcomingByCalendar.remove(calendarId);
+    rebuildTimers();
     if (m_enabledCalendarIds.contains(calendarId))
         fetchForCalendar(calendarId);
-    else
-        rebuildTimers();
 }
 
 std::optional<Event> ReminderScheduler::findCachedEvent(const QString &calendarId, const QString &eventId) const
@@ -197,7 +200,7 @@ void ReminderScheduler::rebuildTimers()
     int armed = 0;
     for (const PlannedReminder &entry : planned) {
         const QString key = ReminderSchedule::keyFor(entry.reminder.calendarId, entry.reminder.eventId,
-                                                      entry.reminder.minutesBefore);
+                                                      entry.reminder.minutesBefore, entry.fireAt);
         if (m_firedKeys.contains(key))
             continue;
         ++armed;

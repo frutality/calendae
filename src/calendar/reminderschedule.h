@@ -38,9 +38,13 @@ namespace ReminderSchedule {
 // startDate. Input order is preserved.
 QList<PlannedReminder> plan(const QList<Event> &events, const QDateTime &now, const QDateTime &windowEnd);
 
-// Stable per-reminder identity ("<calendarId>\x1f<eventId>\x1f<minutes>"),
-// used to remember which reminders already fired this session.
-QString keyFor(const QString &calendarId, const QString &eventId, int minutesBefore);
+// Stable per-occurrence identity
+// ("<calendarId>\x1f<eventId>\x1f<minutes>\x1f<fireAt ms>"), used to
+// remember which reminders already fired this session. fireAt is part of
+// the key on purpose: if an event is rescheduled its reminder fires at a
+// new time and must not be suppressed by the earlier occurrence having
+// fired.
+QString keyFor(const QString &calendarId, const QString &eventId, int minutesBefore, const QDateTime &fireAt);
 
 } // namespace ReminderSchedule
 

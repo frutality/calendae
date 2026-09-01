@@ -137,12 +137,22 @@ void TestReminderSchedule::useDefaultWithoutOverridesProducesNothing()
 
 void TestReminderSchedule::keyForIsStableAndDistinct()
 {
-    QCOMPARE(ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e"), 10),
-             ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e"), 10));
-    QVERIFY(ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e"), 10)
-            != ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e"), 20));
-    QVERIFY(ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e1"), 10)
-            != ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e"), 110));
+    const QDateTime fireAt(QDate(2026, 8, 28), QTime(13, 0), QTimeZone::LocalTime);
+    const QDateTime fireAtLater(QDate(2026, 8, 28), QTime(17, 50), QTimeZone::LocalTime);
+
+    // Same occurrence -> same key (so a re-plan of an unchanged event stays suppressed).
+    QCOMPARE(ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e"), 10, fireAt),
+             ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e"), 10, fireAt));
+
+    // Rescheduled event: same (cal, event, minutes) but a new fire time -> new
+    // key, so the earlier occurrence having fired doesn't suppress the new one.
+    QVERIFY(ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e"), 10, fireAt)
+            != ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e"), 10, fireAtLater));
+
+    QVERIFY(ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e"), 10, fireAt)
+            != ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e"), 20, fireAt));
+    QVERIFY(ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e1"), 10, fireAt)
+            != ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e"), 110, fireAt));
 }
 
 QTEST_APPLESS_MAIN(TestReminderSchedule)

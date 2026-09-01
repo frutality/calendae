@@ -7,9 +7,11 @@ namespace {
 const QLatin1String kPopupMethod("popup");
 }
 
-QString ReminderSchedule::keyFor(const QString &calendarId, const QString &eventId, int minutesBefore)
+QString ReminderSchedule::keyFor(const QString &calendarId, const QString &eventId, int minutesBefore,
+                                 const QDateTime &fireAt)
 {
-    return calendarId + QLatin1Char('\x1f') + eventId + QLatin1Char('\x1f') + QString::number(minutesBefore);
+    return calendarId + QLatin1Char('\x1f') + eventId + QLatin1Char('\x1f') + QString::number(minutesBefore)
+        + QLatin1Char('\x1f') + QString::number(fireAt.toMSecsSinceEpoch());
 }
 
 QList<PlannedReminder> ReminderSchedule::plan(const QList<Event> &events, const QDateTime &now, const QDateTime &windowEnd)
