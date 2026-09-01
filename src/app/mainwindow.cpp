@@ -134,6 +134,19 @@ void MainWindow::connectAuth()
     connect(ui->signInButton, &QPushButton::clicked, this, [this] { m_authManager->signIn(this); });
     connect(ui->actionSignOut, &QAction::triggered, m_authManager, &AuthManager::signOut);
 
+    // While the auth gate is up because Google (or the credential store) was
+    // unreachable at restore, keep silently retrying restoreSession() — no
+    // browser — so the session comes back on its own when connectivity does.
+    // updateUiForState() arms/disarms this per state + reason.
+    m_restoreRetryTimer = new QTimer(this);
+    m_restoreRetryTimer->setInterval(60 * 1000);
+    connect(m_restoreRetryTimer, &QTimer::timeout, this, [this] {
+        if (m_authManager->state() == AuthManager::AuthState::SignedOut
+            && m_authManager->lastSignOutReason() == AuthManager::SignOutReason::NetworkUnavailable) {
+            m_authManager->restoreSession();
+        }
+    });
+
     connect(m_authManager, &AuthManager::stateChanged, this, &MainWindow::updateUiForState);
     connect(m_authManager, &AuthManager::errorOccurred, this, [this](const QString &message) {
         statusBar()->showMessage(message, 8000);
@@ -583,9 +596,29 @@ void MainWindow::updateUiForState(AuthManager::AuthState state)
     ui->actionRefresh->setEnabled(state == AuthManager::AuthState::SignedIn);
     updateDeleteEventActionEnabled();
 
+    if (state != AuthManager::AuthState::SignedOut)
+        m_restoreRetryTimer->stop();
+
     switch (state) {
     case AuthManager::AuthState::SignedOut:
-        ui->authStatusLabel->setText(tr("Not signed in."));
+        switch (m_authManager->lastSignOutReason()) {
+        case AuthManager::SignOutReason::NetworkUnavailable:
+            ui->authStatusLabel->setText(tr("Can't reach Google. Waiting for a connection…"));
+            m_restoreRetryTimer->start(); // silent restore keeps trying in the background
+            break;
+        case AuthManager::SignOutReason::SessionExpired:
+            ui->authStatusLabel->setText(tr("Your session has expired. Please sign in again."));
+            m_restoreRetryTimer->stop();
+            break;
+        case AuthManager::SignOutReason::SignInFailed:
+            ui->authStatusLabel->setText(tr("Sign-in didn't complete. Please try again."));
+            m_restoreRetryTimer->stop();
+            break;
+        case AuthManager::SignOutReason::None:
+            ui->authStatusLabel->setText(tr("Not signed in."));
+            m_restoreRetryTimer->stop();
+            break;
+        }
         ui->signInButton->setVisible(true);
         ui->centralStack->setCurrentWidget(ui->authGatePage);
         break;

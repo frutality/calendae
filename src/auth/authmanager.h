@@ -38,9 +38,24 @@ public:
     };
     Q_ENUM(AuthState)
 
+    // Why there is currently no active session. Lets the UI explain the
+    // auth gate ("waiting for a connection" vs. "session expired") and
+    // decide whether a silent restore retry is worth attempting, instead
+    // of one generic "not signed in".
+    enum class SignOutReason {
+        None,               // never signed in, or an explicit sign-out
+        NetworkUnavailable, // couldn't reach Google / the credential store — a later retry may succeed
+        SessionExpired,     // the stored refresh token was rejected — interactive sign-in required
+        SignInFailed,       // an interactive sign-in didn't complete
+    };
+    Q_ENUM(SignOutReason)
+
     explicit AuthManager(QObject *parent = nullptr);
 
     AuthState state() const { return m_state; }
+
+    // Meaningful whenever state() == SignedOut.
+    SignOutReason lastSignOutReason() const { return m_lastSignOutReason; }
 
     // Valid only while state() == SignedIn.
     QString accessToken() const { return m_accessToken; }
@@ -139,6 +154,7 @@ private:
     OAuthLoopbackServer *m_loopbackServer = nullptr;
 
     AuthState m_state = AuthState::SignedOut;
+    SignOutReason m_lastSignOutReason = SignOutReason::None;
 
     OAuthClientCredentials m_credentials;
     QString m_accessToken;

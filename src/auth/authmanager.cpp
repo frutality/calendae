@@ -102,6 +102,7 @@ AuthManager::AuthManager(QObject *parent)
     m_signInTimeoutTimer.setSingleShot(true);
     connect(&m_signInTimeoutTimer, &QTimer::timeout, this, [this] {
         cleanupLoopbackServer();
+        m_lastSignOutReason = SignOutReason::SignInFailed;
         setState(AuthState::SignedOut);
         emit errorOccurred(tr("Sign-in timed out."));
     });
@@ -189,7 +190,8 @@ void AuthManager::readStoredRefreshToken()
 
         if (error == QKeychain::NoError) {
             if (readJob->textData().isEmpty()) {
-                setState(AuthState::SignedOut); // nothing stored
+                m_lastSignOutReason = SignOutReason::None; // nothing stored
+                setState(AuthState::SignedOut);
                 return;
             }
             m_refreshToken = readJob->textData();
@@ -199,6 +201,7 @@ void AuthManager::readStoredRefreshToken()
 
         switch (classifyKeychainReadError(error)) {
         case KeychainReadOutcome::NoSession:
+            m_lastSignOutReason = SignOutReason::None;
             setState(AuthState::SignedOut);
             return;
         case KeychainReadOutcome::Fatal:
@@ -215,7 +218,9 @@ void AuthManager::readStoredRefreshToken()
                 return;
             }
             // Retries exhausted: the token is presumed still on disk, so
-            // this is "couldn't read it now", not "no session".
+            // this is "couldn't read it now", not "no session" — the UI can
+            // keep silently retrying restore in the background.
+            m_lastSignOutReason = SignOutReason::NetworkUnavailable;
             setState(AuthState::SignedOut);
             emit errorOccurred(tr("The system credential store is unavailable. Please sign in again."));
             return;
@@ -233,6 +238,7 @@ void AuthManager::loadStoredRefreshTokenThenRestore()
             refreshAccessToken(RefreshContext::Restore);
         },
         [this](const QString &) {
+            m_lastSignOutReason = SignOutReason::SessionExpired;
             setState(AuthState::SignedOut);
             emit errorOccurred(tr("Could not restore your session. Please sign in again."));
         });
@@ -259,6 +265,7 @@ void AuthManager::refreshAccessToken(RefreshContext context)
             scheduleProactiveRefresh();
 
             if (context == RefreshContext::Restore) {
+                m_lastSignOutReason = SignOutReason::None;
                 setState(AuthState::SignedIn);
                 emit signedIn();
             }
@@ -270,6 +277,7 @@ void AuthManager::refreshAccessToken(RefreshContext context)
                 // password change). Discard it — retrying is pointless.
                 m_refreshToken.clear();
                 deleteStoredRefreshToken();
+                m_lastSignOutReason = SignOutReason::SessionExpired;
                 setState(AuthState::SignedOut);
                 // Restore fails silently on a routine cold start; a proactive
                 // refresh failing mid-session interrupts an active session.
@@ -286,8 +294,10 @@ void AuthManager::refreshAccessToken(RefreshContext context)
                 // Keep the session; just try again shortly.
                 m_proactiveRefreshTimer.start(kRefreshRetryIntervalMs);
             } else {
-                // Restore: no access token available right now. Surface a
-                // retriable error but leave the token on disk for next time.
+                // Restore: no access token available right now. Mark the gate
+                // as network-blocked (the UI keeps retrying restore silently)
+                // and leave the token on disk for next time.
+                m_lastSignOutReason = SignOutReason::NetworkUnavailable;
                 setState(AuthState::SignedOut);
                 emit errorOccurred(tr("Couldn't reach Google to restore your session. "
                                       "Check your connection and try again."));
@@ -301,6 +311,9 @@ void AuthManager::signIn(QWidget *dialogParent)
         return;
 
     ++m_authEpoch;
+    // Any exit from the interactive flow that lands back on SignedOut is a
+    // sign-in failure; the success path clears this before signedIn().
+    m_lastSignOutReason = SignOutReason::SignInFailed;
     setState(AuthState::SigningIn);
 
     resolveCredentials(
@@ -385,6 +398,7 @@ void AuthManager::exchangeAuthorizationCode(const QString &code)
             saveRefreshToken(m_refreshToken);
             scheduleProactiveRefresh();
 
+            m_lastSignOutReason = SignOutReason::None;
             setState(AuthState::SignedIn);
             emit signedIn();
         },
@@ -400,6 +414,7 @@ void AuthManager::signOut()
         return;
 
     ++m_authEpoch;
+    m_lastSignOutReason = SignOutReason::None;
     cleanupLoopbackServer();
     m_signInTimeoutTimer.stop();
     m_proactiveRefreshTimer.stop();

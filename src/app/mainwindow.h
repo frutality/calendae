@@ -154,6 +154,7 @@ private:
     QLabel *m_memoryUsageLabel;
     QLabel *m_connectivityLabel = nullptr; // permanent status-bar widget, shown only while offline
     QTimer *m_reconnectTimer = nullptr;    // slow poll while offline
+    QTimer *m_restoreRetryTimer = nullptr; // silent restoreSession() retry while the gate is up on a network failure
     QTimer *m_periodicRefreshTimer = nullptr; // 10-min safety re-fetch of the visible range
     bool m_serverUnavailable = false;
     quint64 m_nextEventCreateRequestId = 1;
