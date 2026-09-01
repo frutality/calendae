@@ -8,6 +8,7 @@
 #include <QTimer>
 
 #include <limits>
+#include <utility>
 
 namespace {
 Q_LOGGING_CATEGORY(lcReminder, "tgc.reminder")
@@ -36,18 +37,25 @@ ReminderScheduler::ReminderScheduler(AuthManager *authManager, GoogleCalendarApi
 void ReminderScheduler::setCalendars(const QList<Calendar> &calendars)
 {
     m_calendarsById.clear();
+    QSet<QString> selected;
     for (const Calendar &calendar : calendars) {
         m_calendarsById.insert(calendar.id, calendar);
-        if (!m_enabledCalendarIds.contains(calendar.id) && calendar.selected)
-            m_enabledCalendarIds.insert(calendar.id);
+        if (calendar.selected)
+            selected.insert(calendar.id);
     }
-    // Drop enabled ids for calendars the account no longer has.
-    for (auto it = m_enabledCalendarIds.begin(); it != m_enabledCalendarIds.end();) {
-        if (m_calendarsById.contains(*it))
-            ++it;
-        else
-            it = m_enabledCalendarIds.erase(it);
+
+    // Reconcile to the server's (authoritative) selection: a calendar
+    // deselected or deleted elsewhere must stop firing reminders, not keep
+    // popping notifications from its last-fetched schedule. Mirror the
+    // cleanup setCalendarEnabled(false) does for each dropped calendar.
+    const QSet<QString> dropped = m_enabledCalendarIds - selected;
+    for (const QString &calendarId : dropped) {
+        m_upcomingByCalendar.remove(calendarId);
+        m_latestRequestIdByCalendar.remove(calendarId);
     }
+    m_enabledCalendarIds = std::move(selected);
+    if (!dropped.isEmpty())
+        rebuildTimers(); // kill any timers already armed for the dropped calendars
 
     startFetchCycle();
 }

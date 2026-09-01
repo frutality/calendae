@@ -35,11 +35,20 @@ QList<QDate> MonthEventsController::currentMonthKeys() const
 void MonthEventsController::setCalendars(const QList<Calendar> &calendars)
 {
     m_calendarsById.clear();
+    QSet<QString> selected;
     for (const Calendar &calendar : calendars) {
         m_calendarsById.insert(calendar.id, calendar);
-        if (!m_enabledCalendarIds.contains(calendar.id) && calendar.selected)
-            m_enabledCalendarIds.insert(calendar.id);
+        if (calendar.selected)
+            selected.insert(calendar.id);
     }
+
+    // The server's `selected` flag is authoritative: local sidebar toggles
+    // are PATCHed to Google and come back here, so a calendar deselected or
+    // deleted elsewhere must drop out of the fetch/render set rather than
+    // linger (its events stuck on screen under an unchecked box, or a
+    // forever "could not load" for a now-404 calendar). reloadCurrentMonth()
+    // then clears the view and repaints only what's still enabled.
+    m_enabledCalendarIds = std::move(selected);
 
     reloadCurrentMonth();
 }
