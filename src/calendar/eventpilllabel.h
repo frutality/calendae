@@ -19,10 +19,14 @@ class EventPillLabel : public QLabel
 public:
     explicit EventPillLabel(const MonthDayEventItem &item, QWidget *parent = nullptr);
 
-    // Draws a highlight outline around the pill (on top of the bg/fg
-    // stylesheet the owning cell applies) — the "this is the selected event"
-    // cue for the Delete-key shortcut. Painted in paintEvent() rather than
-    // via the stylesheet so it stays independent of the per-calendar colour
+    // True when this pill's event is (calendarId, eventId) and eventId is
+    // non-empty — the selection test every owning cell runs over its pills.
+    bool matchesEvent(const QString &calendarId, const QString &eventId) const;
+
+    // Draws a highlight outline around the pill (on top of the per-calendar
+    // bg/fg fill the ctor applies) — the "this is the selected event" cue
+    // for the Delete-key shortcut. Painted in paintEvent() rather than via
+    // the stylesheet so it stays independent of the per-calendar colour
     // string; same approach MonthDayCellWidget uses for the selected-day
     // outline.
     void setSelected(bool selected);

@@ -59,11 +59,9 @@ void TimeGridAllDayCellWidget::setSelectedEvent(const QString &calendarId, const
 
 void TimeGridAllDayCellWidget::applyEventSelection()
 {
-    for (int i = 0; i < m_eventWidgets.size(); ++i) {
-        const MonthDayEventItem &item = m_events.at(i);
-        const bool selected = !m_selectedEventId.isEmpty() && item.eventId == m_selectedEventId
-            && item.calendarId == m_selectedCalendarId;
-        qobject_cast<EventPillLabel *>(m_eventWidgets.at(i))->setSelected(selected);
+    for (QWidget *widget : std::as_const(m_eventWidgets)) {
+        auto *pill = qobject_cast<EventPillLabel *>(widget);
+        pill->setSelected(pill->matchesEvent(m_selectedCalendarId, m_selectedEventId));
     }
 }
 
@@ -125,11 +123,6 @@ void TimeGridAllDayCellWidget::rebuildEventWidgets()
             emit eventClicked(calendarId, eventId);
         });
         connect(pill, &EventPillLabel::editRequested, this, &TimeGridAllDayCellWidget::eventEditRequested);
-
-        const QColor bg = item.color.isValid() ? item.color : QColor(Qt::gray);
-        const QColor fg = bg.lightness() < 128 ? QColor(Qt::white) : QColor(Qt::black);
-        pill->setStyleSheet(QStringLiteral("QLabel { background-color: %1; color: %2; border-radius: 3px; padding: 1px 3px; }")
-                                 .arg(bg.name(), fg.name()));
 
         const QFontMetrics metrics(pill->font());
         pill->setText(metrics.elidedText(item.title, Qt::ElideRight, qMax(width() - 8, 20)));

@@ -6,7 +6,6 @@
 #include <QDate>
 #include <QDateTime>
 #include <QList>
-#include <QPair>
 #include <QString>
 #include <QWidget>
 
@@ -73,10 +72,6 @@ private:
     bool m_isToday = false;
     QList<MonthDayEventItem> m_events;
     QList<QWidget *> m_eventWidgets; // EventPillLabel*, absolutely positioned
-    // (calendarId, eventId) parallel to m_eventWidgets — m_eventWidgets is a
-    // filtered/sorted subset of m_events (timed only), so this maps each
-    // pill back to its event for the selection highlight.
-    QList<QPair<QString, QString>> m_eventWidgetKeys;
     QString m_selectedCalendarId;
     QString m_selectedEventId;
     // Draws the current-time indicator. A separate top-most child rather

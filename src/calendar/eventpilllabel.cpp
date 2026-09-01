@@ -1,5 +1,6 @@
 #include "eventpilllabel.h"
 
+#include <QColor>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPaintEvent>
@@ -23,6 +24,18 @@ EventPillLabel::EventPillLabel(const MonthDayEventItem &item, QWidget *parent)
     // setGeometry() (TimeGridDayColumnWidget) rather than by a layout.
     setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     setMinimumWidth(0);
+
+    // Per-calendar fill with a foreground kept legible against it. Every
+    // cell type applied this same string itself before.
+    const QColor bg = item.color.isValid() ? item.color : QColor(Qt::gray);
+    const QColor fg = bg.lightness() < 128 ? QColor(Qt::white) : QColor(Qt::black);
+    setStyleSheet(QStringLiteral("QLabel { background-color: %1; color: %2; border-radius: 3px; padding: 1px 3px; }")
+                      .arg(bg.name(), fg.name()));
+}
+
+bool EventPillLabel::matchesEvent(const QString &calendarId, const QString &eventId) const
+{
+    return !eventId.isEmpty() && eventId == m_eventId && calendarId == m_calendarId;
 }
 
 void EventPillLabel::setSelected(bool selected)

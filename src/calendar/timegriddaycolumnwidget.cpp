@@ -125,11 +125,9 @@ void TimeGridDayColumnWidget::setSelectedEvent(const QString &calendarId, const 
         return;
     m_selectedCalendarId = calendarId;
     m_selectedEventId = eventId;
-    for (int i = 0; i < m_eventWidgets.size(); ++i) {
-        const QPair<QString, QString> &key = m_eventWidgetKeys.at(i);
-        const bool selected = !m_selectedEventId.isEmpty() && key.first == m_selectedCalendarId
-            && key.second == m_selectedEventId;
-        qobject_cast<EventPillLabel *>(m_eventWidgets.at(i))->setSelected(selected);
+    for (QWidget *widget : std::as_const(m_eventWidgets)) {
+        auto *pill = qobject_cast<EventPillLabel *>(widget);
+        pill->setSelected(pill->matchesEvent(m_selectedCalendarId, m_selectedEventId));
     }
 }
 
@@ -162,7 +160,6 @@ void TimeGridDayColumnWidget::relayoutEvents()
     for (QWidget *widget : std::as_const(m_eventWidgets))
         widget->deleteLater();
     m_eventWidgets.clear();
-    m_eventWidgetKeys.clear();
 
     if (!m_date.isValid())
         return;
@@ -241,13 +238,8 @@ void TimeGridDayColumnWidget::relayoutEvents()
             emit eventClicked(calendarId, eventId);
         });
         connect(pill, &EventPillLabel::editRequested, this, &TimeGridDayColumnWidget::eventEditRequested);
-        pill->setSelected(!m_selectedEventId.isEmpty() && item.eventId == m_selectedEventId
-                          && item.calendarId == m_selectedCalendarId);
+        pill->setSelected(pill->matchesEvent(m_selectedCalendarId, m_selectedEventId));
 
-        const QColor bg = item.color.isValid() ? item.color : QColor(Qt::gray);
-        const QColor fg = bg.lightness() < 128 ? QColor(Qt::white) : QColor(Qt::black);
-        pill->setStyleSheet(QStringLiteral("QLabel { background-color: %1; color: %2; border-radius: 3px; padding: 1px 3px; }")
-                                 .arg(bg.name(), fg.name()));
         // Deliberately no explicit setAlignment(): QLabel's default
         // (AlignLeft | AlignVCenter) is what MonthDayCellWidget's pills rely
         // on too, and now that h is always tall enough for one line, that's
@@ -260,7 +252,6 @@ void TimeGridDayColumnWidget::relayoutEvents()
         pill->setGeometry(x, y, w, h);
         pill->show();
         m_eventWidgets.append(pill);
-        m_eventWidgetKeys.append({item.calendarId, item.eventId});
     }
 
     updateNowLineOverlay(); // re-raise above the pills just created
