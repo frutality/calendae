@@ -3,6 +3,7 @@ find_package(Qt6 REQUIRED COMPONENTS Test)
 set(TGC_TEST_NAMES
     test_pkce
     test_tokenresponse
+    test_authmanager
     test_credentialsprovider
     test_oauthloopbackserver
     test_calendar

@@ -6,6 +6,8 @@
 
 #include <QCryptographicHash>
 #include <QDesktopServices>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -19,11 +21,79 @@ const QString kScope = QStringLiteral("https://www.googleapis.com/auth/calendar"
 const QString kRefreshTokenKey = QStringLiteral("refresh_token");
 constexpr int kSignInTimeoutMs = 5 * 60 * 1000;
 constexpr qint64 kProactiveRefreshLeadMs = 60 * 1000;
+// After a transient/server-side proactive-refresh failure the session is
+// kept alive and the refresh is simply retried this soon, rather than
+// tearing everything down.
+constexpr int kRefreshRetryIntervalMs = 60 * 1000;
+// A keychain read that fails because the backend isn't ready yet (autostart
+// racing the KWallet daemon / D-Bus bus) is retried this many times, this
+// far apart, before restore gives up.
+constexpr int kKeychainReadMaxRetries = 3;
+constexpr int kKeychainReadRetryDelayMs = 2000;
 // Without this, a server that accepts the connection but never responds
 // (black-holed by a firewall/proxy, hung process) leaves a request pending
 // forever with no error ever surfaced to the user.
 constexpr int kNetworkTimeoutMs = 20000;
+
+// Connectivity-class QNetworkReply errors: the request never reached a
+// server that could answer. Mirrors GoogleCalendarApi::isTransientNetworkError
+// (kept local so tgc_auth stays independent of tgc_calendar).
+bool isConnectivityError(QNetworkReply::NetworkError error)
+{
+    switch (error) {
+    case QNetworkReply::ConnectionRefusedError:
+    case QNetworkReply::RemoteHostClosedError:
+    case QNetworkReply::HostNotFoundError:
+    case QNetworkReply::TimeoutError:
+    case QNetworkReply::OperationCanceledError: // transfer timeout fires as this
+    case QNetworkReply::TemporaryNetworkFailureError:
+    case QNetworkReply::NetworkSessionFailedError:
+    case QNetworkReply::BackgroundRequestNotAllowedError:
+    case QNetworkReply::ProxyConnectionRefusedError:
+    case QNetworkReply::ProxyConnectionClosedError:
+    case QNetworkReply::ProxyNotFoundError:
+    case QNetworkReply::ProxyTimeoutError:
+    case QNetworkReply::UnknownNetworkError:
+    case QNetworkReply::UnknownProxyError:
+        return true;
+    default:
+        return false;
+    }
+}
 } // namespace
+
+AuthManager::TokenFailure AuthManager::classifyTokenFailure(QNetworkReply::NetworkError error,
+                                                            int httpStatusCode,
+                                                            const QByteArray &body)
+{
+    // A response with a status code means the server answered — never a
+    // connectivity problem, whatever the QNetworkReply code says.
+    if (httpStatusCode < 400 && isConnectivityError(error))
+        return TokenFailure::Transient;
+
+    const QJsonObject obj = QJsonDocument::fromJson(body).object();
+    if (obj.value(QStringLiteral("error")).toString() == QStringLiteral("invalid_grant"))
+        return TokenFailure::InvalidGrant;
+
+    return TokenFailure::ServerError;
+}
+
+AuthManager::KeychainReadOutcome AuthManager::classifyKeychainReadError(QKeychain::Error error)
+{
+    switch (error) {
+    case QKeychain::EntryNotFound:
+        return KeychainReadOutcome::NoSession;
+    case QKeychain::AccessDeniedByUser:
+    case QKeychain::NotImplemented:
+        return KeychainReadOutcome::Fatal;
+    default:
+        // AccessDenied / NoBackendAvailable / OtherError: the credential
+        // store is momentarily unavailable (KWallet daemon or the D-Bus
+        // session bus not up yet at login autostart). Retry before giving
+        // up — never treat this as "no session".
+        return KeychainReadOutcome::Retriable;
+    }
+}
 
 AuthManager::AuthManager(QObject *parent)
     : QObject(parent)
@@ -98,19 +168,58 @@ void AuthManager::resolveCredentials(bool allowInteractiveFallback,
 
 void AuthManager::restoreSession()
 {
+    ++m_authEpoch;
+    m_keychainReadAttempts = 0;
     setState(AuthState::Restoring);
+    readStoredRefreshToken();
+}
 
+void AuthManager::readStoredRefreshToken()
+{
     auto *job = new QKeychain::ReadPasswordJob(CredentialsProvider::keychainService, this);
     job->setKey(kRefreshTokenKey);
-    connect(job, &QKeychain::Job::finished, this, [this](QKeychain::Job *job) {
+    const quint64 epoch = m_authEpoch;
+    connect(job, &QKeychain::Job::finished, this, [this, epoch](QKeychain::Job *job) {
+        // A sign-out or a fresh auth attempt superseded this restore.
+        if (epoch != m_authEpoch)
+            return;
+
         auto *readJob = qobject_cast<QKeychain::ReadPasswordJob *>(job);
-        if (readJob->error() != QKeychain::NoError || readJob->textData().isEmpty()) {
-            setState(AuthState::SignedOut);
+        const QKeychain::Error error = readJob->error();
+
+        if (error == QKeychain::NoError) {
+            if (readJob->textData().isEmpty()) {
+                setState(AuthState::SignedOut); // nothing stored
+                return;
+            }
+            m_refreshToken = readJob->textData();
+            loadStoredRefreshTokenThenRestore();
             return;
         }
 
-        m_refreshToken = readJob->textData();
-        loadStoredRefreshTokenThenRestore();
+        switch (classifyKeychainReadError(error)) {
+        case KeychainReadOutcome::NoSession:
+            setState(AuthState::SignedOut);
+            return;
+        case KeychainReadOutcome::Fatal:
+            setState(AuthState::SignedOut);
+            emit errorOccurred(tr("Couldn't open the system credential store. Please sign in again."));
+            return;
+        case KeychainReadOutcome::Retriable:
+            if (m_keychainReadAttempts < kKeychainReadMaxRetries) {
+                ++m_keychainReadAttempts;
+                QTimer::singleShot(kKeychainReadRetryDelayMs, this, [this, epoch] {
+                    if (epoch == m_authEpoch && m_state == AuthState::Restoring)
+                        readStoredRefreshToken();
+                });
+                return;
+            }
+            // Retries exhausted: the token is presumed still on disk, so
+            // this is "couldn't read it now", not "no session".
+            setState(AuthState::SignedOut);
+            emit errorOccurred(tr("The system credential store is unavailable. Please sign in again."));
+            return;
+        }
     });
     job->start();
 }
@@ -155,15 +264,34 @@ void AuthManager::refreshAccessToken(RefreshContext context)
             }
             // Proactive refresh: state is already SignedIn, nothing else to do.
         },
-        [this, context](const QString &) {
-            m_refreshToken.clear();
-            deleteStoredRefreshToken();
-            setState(AuthState::SignedOut);
-            // Restore context fails silently on a routine cold start; a
-            // proactive refresh failing mid-session is a real, user-visible
-            // event since it interrupts an active session.
-            if (context == RefreshContext::Proactive)
-                emit errorOccurred(tr("Your session expired. Please sign in again."));
+        [this, context](TokenFailure failure, const QString &) {
+            if (failure == TokenFailure::InvalidGrant) {
+                // The refresh token is genuinely dead (revoked, expired,
+                // password change). Discard it — retrying is pointless.
+                m_refreshToken.clear();
+                deleteStoredRefreshToken();
+                setState(AuthState::SignedOut);
+                // Restore fails silently on a routine cold start; a proactive
+                // refresh failing mid-session interrupts an active session.
+                if (context == RefreshContext::Proactive)
+                    emit errorOccurred(tr("Your session expired. Please sign in again."));
+                return;
+            }
+
+            // Transient / server-side failure: the stored refresh token is
+            // still presumed valid and is NEVER deleted here — doing so would
+            // turn a network blip into a forced browser re-login and defeat
+            // offline startup.
+            if (context == RefreshContext::Proactive) {
+                // Keep the session; just try again shortly.
+                m_proactiveRefreshTimer.start(kRefreshRetryIntervalMs);
+            } else {
+                // Restore: no access token available right now. Surface a
+                // retriable error but leave the token on disk for next time.
+                setState(AuthState::SignedOut);
+                emit errorOccurred(tr("Couldn't reach Google to restore your session. "
+                                      "Check your connection and try again."));
+            }
         });
 }
 
@@ -172,6 +300,7 @@ void AuthManager::signIn(QWidget *dialogParent)
     if (m_state != AuthState::SignedOut)
         return;
 
+    ++m_authEpoch;
     setState(AuthState::SigningIn);
 
     resolveCredentials(
@@ -259,7 +388,7 @@ void AuthManager::exchangeAuthorizationCode(const QString &code)
             setState(AuthState::SignedIn);
             emit signedIn();
         },
-        [this](const QString &error) {
+        [this](TokenFailure, const QString &error) {
             setState(AuthState::SignedOut);
             emit errorOccurred(tr("Sign-in failed: %1").arg(error));
         });
@@ -270,6 +399,7 @@ void AuthManager::signOut()
     if (m_state == AuthState::SignedOut)
         return;
 
+    ++m_authEpoch;
     cleanupLoopbackServer();
     m_signInTimeoutTimer.stop();
     m_proactiveRefreshTimer.stop();
@@ -339,11 +469,20 @@ QNetworkReply *AuthManager::postForm(const QUrl &endpoint, const QUrlQuery &para
 
 void AuthManager::handleTokenReply(QNetworkReply *reply,
                                     const std::function<void(const TokenResponse &)> &onSuccess,
-                                    const std::function<void(const QString &)> &onFailure)
+                                    const std::function<void(TokenFailure, const QString &)> &onFailure)
 {
-    connect(reply, &QNetworkReply::finished, this, [reply, onSuccess, onFailure] {
+    const quint64 epoch = m_authEpoch;
+    connect(reply, &QNetworkReply::finished, this, [this, epoch, reply, onSuccess, onFailure] {
         reply->deleteLater();
 
+        // A sign-out or a fresh auth attempt happened while this was in
+        // flight: drop the reply entirely so it can't flip state back to
+        // SignedIn or rewrite the keychain after sign-out.
+        if (epoch != m_authEpoch)
+            return;
+
+        const int httpStatus =
+            reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const QByteArray body = reply->readAll();
         QString error;
         const std::optional<TokenResponse> response = TokenResponse::fromJson(body, &error);
@@ -351,7 +490,7 @@ void AuthManager::handleTokenReply(QNetworkReply *reply,
         if (!response) {
             if (body.isEmpty())
                 error = reply->errorString();
-            onFailure(error);
+            onFailure(classifyTokenFailure(reply->error(), httpStatus, body), error);
             return;
         }
 
