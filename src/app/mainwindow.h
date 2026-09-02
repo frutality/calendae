@@ -154,6 +154,7 @@ private:
     bool m_monthControllerPopulated = false;
     bool m_weekControllerPopulated = false;
     bool m_dayControllerPopulated = false;
+    bool m_insecureStorageWarned = false; // shown once per run if the session is saved unencrypted
 
     QList<Calendar> m_calendars; // most recent calendarListFetched result, kept in sync with sidebar toggles
     QLabel *m_memoryUsageLabel;

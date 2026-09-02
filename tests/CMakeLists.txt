@@ -5,6 +5,7 @@ set(TGC_TEST_NAMES
     test_tokenresponse
     test_authmanager
     test_credentialsprovider
+    test_keychainjob
     test_oauthloopbackserver
     test_calendar
     test_googlecalendarapi

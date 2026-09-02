@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
+#include "auth/keychainjob.h"
 #include "calendar/calendarsidebarwidget.h"
 #include "calendar/event.h"
 #include "calendar/eventdialog.h"
@@ -155,16 +156,32 @@ void MainWindow::connectAuth()
         statusBar()->showMessage(message, 8000);
     });
 
+    // No OS keyring: the session is being kept in a plain-text file so it
+    // still survives a restart. Say so once per run. AuthManager's signal
+    // covers a fresh sign-in (the token write happens async, after signedIn);
+    // the check below covers a restart that reads straight from that file.
+    auto warnInsecureStorageOnce = [this] {
+        if (m_insecureStorageWarned)
+            return;
+        m_insecureStorageWarned = true;
+        statusBar()->showMessage(
+            tr("No system keyring found — this session is saved unencrypted on this device."),
+            12000);
+    };
+    connect(m_authManager, &AuthManager::credentialStorageInsecure, this, warnInsecureStorageOnce);
+
     // Runs before the fetchCalendarList() connect below, so the disk-cached
     // calendar list and events can paint immediately while the network
     // request is still in flight (or failing, offline).
-    connect(m_authManager, &AuthManager::signedIn, this, [this] {
+    connect(m_authManager, &AuthManager::signedIn, this, [this, warnInsecureStorageOnce] {
         m_eventCacheStore.setAccountKey(m_authManager->accountKey());
         m_eventCacheStore.prune(30, 200);
         if (m_calendars.isEmpty()) {
             if (const std::optional<QList<Calendar>> cached = m_eventCacheStore.loadCalendars())
                 applyCalendarList(*cached, /*fromCache=*/true);
         }
+        if (keychainSecretStoredInsecurely())
+            warnInsecureStorageOnce();
     });
     connect(m_authManager, &AuthManager::signedIn, m_calendarApi, &GoogleCalendarApi::fetchCalendarList);
     connect(m_authManager, &AuthManager::signedOut, m_calendarSidebar, &CalendarSidebarWidget::clear);

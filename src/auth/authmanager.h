@@ -124,6 +124,12 @@ signals:
     void signedOut();
     void errorOccurred(const QString &message);
 
+    // Emitted (at most once per run) when a refresh-token write had to fall
+    // back to the unencrypted on-disk store because no OS keyring was
+    // reachable. The session still persists across restarts; the UI should
+    // tell the user their credentials aren't encrypted at rest.
+    void credentialStorageInsecure();
+
 private:
     enum class RefreshContext {
         Restore,
@@ -177,6 +183,11 @@ private:
     // Retriable keychain-read failures during restore are retried a bounded
     // number of times before giving up (see readStoredRefreshToken).
     int m_keychainReadAttempts = 0;
+
+    // Latches once credentialStorageInsecure() has been emitted, so the
+    // warning fires at most once per run however many times the token is
+    // rewritten (proactive refresh rotates it).
+    bool m_insecureStorageReported = false;
 
     QTimer m_proactiveRefreshTimer;
     QTimer m_signInTimeoutTimer;

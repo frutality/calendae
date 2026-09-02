@@ -1,4 +1,5 @@
 #include "authmanager.h"
+#include "keychainjob.h"
 #include "oauthloopbackserver.h"
 #include "pkce.h"
 
@@ -177,8 +178,7 @@ void AuthManager::restoreSession()
 
 void AuthManager::readStoredRefreshToken()
 {
-    auto *job = new QKeychain::ReadPasswordJob(CredentialsProvider::keychainService, this);
-    job->setKey(kRefreshTokenKey);
+    auto *job = makeKeychainJob<QKeychain::ReadPasswordJob>(kRefreshTokenKey, this);
     const quint64 epoch = m_authEpoch;
     connect(job, &QKeychain::Job::finished, this, [this, epoch](QKeychain::Job *job) {
         // A sign-out or a fresh auth attempt superseded this restore.
@@ -450,16 +450,24 @@ void AuthManager::scheduleProactiveRefresh()
 
 void AuthManager::saveRefreshToken(const QString &token)
 {
-    auto *job = new QKeychain::WritePasswordJob(CredentialsProvider::keychainService, this);
-    job->setKey(kRefreshTokenKey);
+    auto *job = makeKeychainJob<QKeychain::WritePasswordJob>(kRefreshTokenKey, this);
     job->setTextData(token);
+    connect(job, &QKeychain::Job::finished, this, [this](QKeychain::Job *job) {
+        if (job->error() != QKeychain::NoError)
+            return;
+        // No keyring backend: makeKeychainJob() set insecureFallback, so the
+        // write still "succeeded" — into a plain-text file. Tell the UI once.
+        if (!m_insecureStorageReported && keychainSecretStoredInsecurely()) {
+            m_insecureStorageReported = true;
+            emit credentialStorageInsecure();
+        }
+    });
     job->start();
 }
 
 void AuthManager::deleteStoredRefreshToken()
 {
-    auto *job = new QKeychain::DeletePasswordJob(CredentialsProvider::keychainService, this);
-    job->setKey(kRefreshTokenKey);
+    auto *job = makeKeychainJob<QKeychain::DeletePasswordJob>(kRefreshTokenKey, this);
     job->start();
 }
 

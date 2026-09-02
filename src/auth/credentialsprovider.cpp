@@ -1,4 +1,5 @@
 #include "credentialsprovider.h"
+#include "keychainjob.h"
 #include "oauthcredentialsdialog.h"
 
 #include <keychain.h>
@@ -40,8 +41,7 @@ void CredentialsProvider::resolve(bool allowInteractiveFallback, QWidget *dialog
 
 void CredentialsProvider::tryKeychain(bool allowInteractiveFallback, QWidget *dialogParent)
 {
-    auto *job = new QKeychain::ReadPasswordJob(keychainService, this);
-    job->setKey(keychainKey);
+    auto *job = makeKeychainJob<QKeychain::ReadPasswordJob>(keychainKey, this);
     connect(job, &QKeychain::Job::finished, this, [this, allowInteractiveFallback, dialogParent](QKeychain::Job *job) {
         auto *readJob = qobject_cast<QKeychain::ReadPasswordJob *>(job);
         if (readJob->error() == QKeychain::NoError) {
@@ -89,8 +89,7 @@ void CredentialsProvider::showDialogAndSave(QWidget *dialogParent)
         // async write mid-flight if it were a child of `this`. QtKeychain
         // jobs self-delete (autoDelete()) once finished() fires, so a null
         // parent here is intentional, not a leak.
-        auto *writeJob = new QKeychain::WritePasswordJob(keychainService);
-        writeJob->setKey(keychainKey);
+        auto *writeJob = makeKeychainJob<QKeychain::WritePasswordJob>(keychainKey);
         writeJob->setTextData(QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact)));
         writeJob->start();
 

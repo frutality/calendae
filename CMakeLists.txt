@@ -12,11 +12,40 @@ include(FetchContent)
 set(BUILD_WITH_QT6 ON CACHE BOOL "" FORCE)
 set(BUILD_TEST_APPLICATION OFF CACHE BOOL "" FORCE)
 set(BUILD_TRANSLATIONS OFF CACHE BOOL "" FORCE)
-# libsecret-1-dev isn't installed on this machine; qtkeychain still supports
-# KWallet via D-Bus without it (keychain_unix.cpp picks a backend at
-# runtime), so this only drops the Secret Service backend, not Linux
-# support in general.
-set(LIBSECRET_SUPPORT OFF CACHE BOOL "" FORCE)
+
+# QtKeychain backend selection. The libsecret backend is the cross-desktop
+# one: it drives ANY org.freedesktop.secrets provider (gnome-keyring,
+# KeePassXC, KWallet 6, pass-secret-service, ...), so the app no longer
+# depends on KWallet specifically. It needs the libsecret-1 headers at
+# configure time; at runtime QtKeychain dlopen()s the library, so it stays a
+# soft dependency -- an absent keyring daemon falls through to KWallet's own
+# D-Bus protocol and finally to the on-disk fallback (see
+# src/auth/keychainjob.h). Auto-detected; override with
+# -DCALENDAE_WITH_LIBSECRET=ON or =OFF.
+set(CALENDAE_WITH_LIBSECRET "AUTO" CACHE STRING
+    "QtKeychain Secret Service (libsecret) backend: ON, OFF, or AUTO-detect")
+if(CALENDAE_WITH_LIBSECRET STREQUAL "AUTO")
+    set(_calendae_libsecret OFF)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        find_package(PkgConfig QUIET)
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(CALENDAE_LIBSECRET QUIET libsecret-1)
+            if(CALENDAE_LIBSECRET_FOUND)
+                set(_calendae_libsecret ON)
+            endif()
+        endif()
+    endif()
+else()
+    set(_calendae_libsecret ${CALENDAE_WITH_LIBSECRET})
+endif()
+
+set(LIBSECRET_SUPPORT ${_calendae_libsecret} CACHE BOOL "" FORCE)
+if(_calendae_libsecret)
+    message(STATUS "calendae: QtKeychain Secret Service (libsecret) backend enabled")
+else()
+    message(STATUS "calendae: QtKeychain libsecret backend off -- install libsecret-1 "
+        "development files for Secret Service support; KWallet + on-disk fallback still work")
+endif()
 
 FetchContent_Declare(
     qtkeychain
@@ -49,6 +78,8 @@ add_library(tgc_auth STATIC
     src/auth/tokenresponse.cpp
     src/auth/credentialsprovider.h
     src/auth/credentialsprovider.cpp
+    src/auth/keychainjob.h
+    src/auth/keychainjob.cpp
     src/auth/oauthcredentialsdialog.h
     src/auth/oauthcredentialsdialog.cpp
     src/auth/oauthcredentialsdialog.ui
