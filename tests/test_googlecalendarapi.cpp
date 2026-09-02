@@ -17,6 +17,8 @@ private slots:
     void buildsEventsListUrl();
     void buildsCreateEventBodyForAllDayEvent();
     void buildsCreateEventBodyForTimedEvent();
+    void buildsCreateEventBodyForTimedEventCrossingMidnight();
+    void buildsCreateEventBodyForMultiDayAllDayEvent();
     void omitsEmptyDescriptionFromCreateEventBody();
     void buildsEventDetailUrl();
     void buildsUpdateEventBodyForAllDayEvent();
@@ -141,6 +143,48 @@ void TestGoogleCalendarApi::buildsCreateEventBodyForTimedEvent()
     QVERIFY(endDateTime.endsWith(QLatin1Char('Z')));
     QCOMPARE(QDateTime::fromString(startDateTime, Qt::ISODate), request.startDateTime);
     QCOMPARE(QDateTime::fromString(endDateTime, Qt::ISODate), request.endDateTime);
+}
+
+void TestGoogleCalendarApi::buildsCreateEventBodyForTimedEventCrossingMidnight()
+{
+    // A 23:00 -> 01:00 event: start and end fall on different calendar days.
+    // Both instants must survive as UTC dateTime values with end > start.
+    const QTimeZone localTimeZone(QTimeZone::LocalTime);
+
+    NewEventRequest request;
+    request.calendarId = QStringLiteral("someone@example.com");
+    request.summary = QStringLiteral("Late shift");
+    request.allDay = false;
+    request.startDateTime = QDateTime(QDate(2026, 8, 25), QTime(23, 0), localTimeZone);
+    request.endDateTime = QDateTime(QDate(2026, 8, 26), QTime(1, 0), localTimeZone);
+
+    const QJsonObject obj = QJsonDocument::fromJson(GoogleCalendarApi::buildCreateEventBody(request)).object();
+    const QString startDateTime = obj.value(QStringLiteral("start")).toObject().value(QStringLiteral("dateTime")).toString();
+    const QString endDateTime = obj.value(QStringLiteral("end")).toObject().value(QStringLiteral("dateTime")).toString();
+
+    QVERIFY(startDateTime.endsWith(QLatin1Char('Z')));
+    QVERIFY(endDateTime.endsWith(QLatin1Char('Z')));
+    const QDateTime parsedStart = QDateTime::fromString(startDateTime, Qt::ISODate);
+    const QDateTime parsedEnd = QDateTime::fromString(endDateTime, Qt::ISODate);
+    QCOMPARE(parsedStart, request.startDateTime);
+    QCOMPARE(parsedEnd, request.endDateTime);
+    QVERIFY(parsedEnd > parsedStart);
+}
+
+void TestGoogleCalendarApi::buildsCreateEventBodyForMultiDayAllDayEvent()
+{
+    NewEventRequest request;
+    request.calendarId = QStringLiteral("someone@example.com");
+    request.summary = QStringLiteral("Conference");
+    request.allDay = true;
+    request.startDate = QDate(2026, 8, 25);
+    request.endDateExclusive = QDate(2026, 8, 28); // covers Aug 25-27 inclusive
+
+    const QJsonObject obj = QJsonDocument::fromJson(GoogleCalendarApi::buildCreateEventBody(request)).object();
+    const QJsonObject start = obj.value(QStringLiteral("start")).toObject();
+    const QJsonObject end = obj.value(QStringLiteral("end")).toObject();
+    QCOMPARE(start.value(QStringLiteral("date")).toString(), QStringLiteral("2026-08-25"));
+    QCOMPARE(end.value(QStringLiteral("date")).toString(), QStringLiteral("2026-08-28"));
 }
 
 void TestGoogleCalendarApi::omitsEmptyDescriptionFromCreateEventBody()

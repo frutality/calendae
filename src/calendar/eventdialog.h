@@ -40,10 +40,9 @@ public:
     // Edit mode: pre-fills every field from event. calendar is shown as a
     // fixed, disabled single-item field — Google models moving an event
     // between calendars as a separate events.move call, out of scope here.
-    // If the event spans more than one calendar day (rare; this dialog's
-    // date model, like create's, is single-day-only), the form still opens
-    // with fields populated but Save stays disabled with an explanatory
-    // message, to avoid silently truncating the event's span on save.
+    // Multi-day events (all-day spans and timed events crossing midnight)
+    // are fully editable — the separate start-date / end-date fields carry
+    // the span.
     explicit EventDialog(const Calendar &calendar, const Event &event, QWidget *parent = nullptr);
     ~EventDialog() override;
 
@@ -93,6 +92,10 @@ private:
 
     NewEventRequest buildRequest() const;
     void setFormEnabled(bool enabled);
+    // Keeps the end date at or after the start date when the user moves the
+    // start: shifts endDateEdit by the same number of days the start moved,
+    // matching Google Calendar's web UI. No-ops during initial population.
+    void onStartDateChanged(const QDate &newStartDate);
     static QTime defaultStartTime();
 
     // Populates the reminder combo/units and seeds them from popupMinutes
@@ -107,7 +110,12 @@ private:
     bool m_deleteInProgress = false;
     Mode m_mode = Mode::Create;
     QString m_editingEventId;
-    bool m_multiDayEditUnsupported = false;
+    // Persistent note shown in the status label (e.g. the recurring-series
+    // caveat). updateOkEnabled() falls back to this whenever it has no
+    // validation hint of its own to show.
+    QString m_persistentNote;
+    bool m_showingOrderingHint = false; // status label currently holds a start/end ordering warning
+    QDate m_startDateForDelta; // last known start date, for onStartDateChanged()
 
     // Reminder state as loaded (Edit mode); compared against the form in
     // buildRequest() to decide between Unchanged / Off / Popup.

@@ -10,10 +10,10 @@
 
 // Caller-supplied fields for GoogleCalendarApi::createEvent. Only the
 // allDay-relevant fields are read/serialized — same allDay-gated
-// QDate-pair-vs-QDateTime-pair convention as Event (event.h). Single-day
-// only for M5 (Google's Event data listing has one "date" field); start/end
-// are kept independent so multi-day creation later is additive, not a
-// restructure.
+// QDate-pair-vs-QDateTime-pair convention as Event (event.h). start and end
+// are independent instants/dates, so a request can span multiple days: an
+// all-day event over a date range, or a timed event that runs past
+// midnight.
 struct NewEventRequest
 {
     // How the dialog's single "Remind me" control maps onto the request body:

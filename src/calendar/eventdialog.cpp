@@ -6,6 +6,7 @@
 #include <QIcon>
 #include <QPixmap>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTimeZone>
 
@@ -31,15 +32,24 @@ EventDialog::EventDialog(const QList<Calendar> &writableCalendars, const QDate &
     if (ui->calendarCombo->count() == 0)
         ui->statusLabel->setText(tr("You don't have write access to any calendar."));
 
-    ui->dateEdit->setDate(initialDate);
-    ui->startTimeEdit->setTime(initialTime.value_or(defaultStartTime()));
-    ui->endTimeEdit->setTime(ui->startTimeEdit->time().addSecs(3600));
+    // Seed start/end from one instant + a 1-hour default so a start time
+    // late in the day rolls the end onto the next calendar day instead of
+    // producing an un-submittable "ends before it starts" form.
+    const QDateTime start(initialDate, initialTime.value_or(defaultStartTime()));
+    const QDateTime end = start.addSecs(3600);
+    ui->dateEdit->setDate(start.date());
+    ui->startTimeEdit->setTime(start.time());
+    ui->endDateEdit->setDate(end.date());
+    ui->endTimeEdit->setTime(end.time());
     ui->allDayCheck->setChecked(false);
+    m_startDateForDelta = ui->dateEdit->date();
 
     setupReminderControls(-1); // new events start with no reminder
 
     connect(ui->titleEdit, &QLineEdit::textChanged, this, &EventDialog::updateOkEnabled);
+    connect(ui->dateEdit, &QDateEdit::dateChanged, this, &EventDialog::onStartDateChanged);
     connect(ui->startTimeEdit, &QTimeEdit::timeChanged, this, &EventDialog::updateOkEnabled);
+    connect(ui->endDateEdit, &QDateEdit::dateChanged, this, &EventDialog::updateOkEnabled);
     connect(ui->endTimeEdit, &QTimeEdit::timeChanged, this, &EventDialog::updateOkEnabled);
     connect(ui->allDayCheck, &QCheckBox::toggled, this, &EventDialog::onAllDayToggled);
     connect(ui->buttonBox, &QDialogButtonBox::accepted, this, &EventDialog::onOkClicked);
@@ -68,12 +78,18 @@ EventDialog::EventDialog(const Calendar &calendar, const Event &event, QWidget *
     ui->descriptionEdit->setPlainText(event.description);
     ui->allDayCheck->setChecked(event.allDay);
     ui->dateEdit->setDate(event.startDate);
-    if (!event.allDay) {
-        ui->startTimeEdit->setTime(event.startDateTime.toLocalTime().time());
-        ui->endTimeEdit->setTime(event.endDateTime.toLocalTime().time());
+    if (event.allDay) {
+        // endDate is exclusive on the wire; the field shows the last day the
+        // event actually covers (inclusive), matching how users read it.
+        ui->endDateEdit->setDate(event.lastInclusiveLocalDate());
+    } else {
+        const QDateTime localStart = event.startDateTime.toLocalTime();
+        const QDateTime localEnd = event.endDateTime.toLocalTime();
+        ui->startTimeEdit->setTime(localStart.time());
+        ui->endDateEdit->setDate(localEnd.date());
+        ui->endTimeEdit->setTime(localEnd.time());
     }
-
-    m_multiDayEditUnsupported = event.lastInclusiveLocalDate() != event.startDate;
+    m_startDateForDelta = ui->dateEdit->date();
 
     int popupMinutes = -1;
     for (const EventReminder &reminder : event.reminderOverrides) {
@@ -87,7 +103,9 @@ EventDialog::EventDialog(const Calendar &calendar, const Event &event, QWidget *
     setupReminderControls(popupMinutes);
 
     connect(ui->titleEdit, &QLineEdit::textChanged, this, &EventDialog::updateOkEnabled);
+    connect(ui->dateEdit, &QDateEdit::dateChanged, this, &EventDialog::onStartDateChanged);
     connect(ui->startTimeEdit, &QTimeEdit::timeChanged, this, &EventDialog::updateOkEnabled);
+    connect(ui->endDateEdit, &QDateEdit::dateChanged, this, &EventDialog::updateOkEnabled);
     connect(ui->endTimeEdit, &QTimeEdit::timeChanged, this, &EventDialog::updateOkEnabled);
     connect(ui->allDayCheck, &QCheckBox::toggled, this, &EventDialog::onAllDayToggled);
     connect(ui->buttonBox, &QDialogButtonBox::accepted, this, &EventDialog::onOkClicked);
@@ -97,10 +115,10 @@ EventDialog::EventDialog(const Calendar &calendar, const Event &event, QWidget *
 
     onAllDayToggled(event.allDay);
 
-    if (m_multiDayEditUnsupported)
-        ui->statusLabel->setText(tr("Editing multi-day events isn't supported yet."));
-    else if (!event.recurringEventId.isEmpty())
-        ui->statusLabel->setText(tr("This event is part of a recurring series. Saving affects only this occurrence."));
+    if (!event.recurringEventId.isEmpty()) {
+        m_persistentNote = tr("This event is part of a recurring series. Saving affects only this occurrence.");
+        ui->statusLabel->setText(m_persistentNote);
+    }
 
     updateOkEnabled();
     ui->titleEdit->setFocus();
@@ -113,11 +131,48 @@ EventDialog::~EventDialog()
 
 void EventDialog::updateOkEnabled()
 {
-    const bool valid = !ui->titleEdit->text().trimmed().isEmpty()
-        && ui->calendarCombo->count() > 0
-        && (ui->allDayCheck->isChecked() || ui->endTimeEdit->time() > ui->startTimeEdit->time())
-        && !m_multiDayEditUnsupported;
-    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(valid);
+    const bool allDay = ui->allDayCheck->isChecked();
+    const bool titleOk = !ui->titleEdit->text().trimmed().isEmpty();
+    const bool calendarOk = ui->calendarCombo->count() > 0;
+
+    // The end can land on a later calendar day than the start (an all-day
+    // span, or a timed event running past midnight); only the ordering of
+    // the two full instants matters.
+    bool orderingOk = true;
+    if (allDay)
+        orderingOk = ui->endDateEdit->date() >= ui->dateEdit->date();
+    else
+        orderingOk = QDateTime(ui->endDateEdit->date(), ui->endTimeEdit->time())
+                   > QDateTime(ui->dateEdit->date(), ui->startTimeEdit->time());
+
+    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(titleOk && calendarOk && orderingOk);
+
+    // Spell out the one reason OK stays disabled that isn't obvious from
+    // looking at the form; otherwise leave the persistent note in place.
+    if (!orderingOk && titleOk && calendarOk) {
+        ui->statusLabel->setText(allDay
+            ? tr("The end date can't be before the start date.")
+            : tr("The event has to end after it starts."));
+        m_showingOrderingHint = true;
+    } else if (m_showingOrderingHint) {
+        ui->statusLabel->setText(m_persistentNote);
+        m_showingOrderingHint = false;
+    }
+}
+
+void EventDialog::onStartDateChanged(const QDate &newStartDate)
+{
+    // Drag the end date along with the start so the span the user already
+    // set is preserved (Google Calendar's web UI does the same).
+    if (m_startDateForDelta.isValid()) {
+        const qint64 shiftDays = m_startDateForDelta.daysTo(newStartDate);
+        if (shiftDays != 0) {
+            const QSignalBlocker blocker(ui->endDateEdit);
+            ui->endDateEdit->setDate(ui->endDateEdit->date().addDays(shiftDays));
+        }
+    }
+    m_startDateForDelta = newStartDate;
+    updateOkEnabled();
 }
 
 void EventDialog::onAllDayToggled(bool allDay)
@@ -150,11 +205,13 @@ NewEventRequest EventDialog::buildRequest() const
 
     if (request.allDay) {
         request.startDate = ui->dateEdit->date();
-        request.endDateExclusive = request.startDate.addDays(1);
+        // The field holds the last day the event covers (inclusive); Google
+        // wants the day after (exclusive).
+        request.endDateExclusive = ui->endDateEdit->date().addDays(1);
     } else {
         const QTimeZone localTimeZone(QTimeZone::LocalTime);
         request.startDateTime = QDateTime(ui->dateEdit->date(), ui->startTimeEdit->time(), localTimeZone);
-        request.endDateTime = QDateTime(ui->dateEdit->date(), ui->endTimeEdit->time(), localTimeZone);
+        request.endDateTime = QDateTime(ui->endDateEdit->date(), ui->endTimeEdit->time(), localTimeZone);
     }
 
     applyReminderToRequest(request);
@@ -262,6 +319,7 @@ void EventDialog::setFormEnabled(bool enabled)
     ui->allDayCheck->setEnabled(enabled);
     ui->dateEdit->setEnabled(enabled);
     ui->startTimeEdit->setEnabled(enabled);
+    ui->endDateEdit->setEnabled(enabled);
     ui->endTimeEdit->setEnabled(enabled);
     ui->descriptionEdit->setEnabled(enabled);
     ui->reminderCheck->setEnabled(enabled);
