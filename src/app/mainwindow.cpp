@@ -53,13 +53,24 @@ void MainWindow::setupMemoryIndicator()
 {
     m_memoryUsageLabel = new QLabel(this);
     m_memoryUsageLabel->setContentsMargins(0, 0, 8, 0);
+    m_memoryUsageLabel->setToolTip(tr(
+        "RSS: resident memory, shared library pages counted in full.\n"
+        "PSS: the same but shared pages counted only as this process's "
+        "share — the honest per-process cost. Linux only."));
     menuBar()->setCornerWidget(m_memoryUsageLabel, Qt::TopRightCorner);
+
+    const auto refreshMemoryLabel = [this] {
+        const qint64 rss = currentProcessResidentMemoryBytes();
+        const qint64 pss = currentProcessProportionalSetSizeBytes();
+        m_memoryUsageLabel->setText(pss > 0
+            ? QStringLiteral("RSS %1 · PSS %2").arg(formatMemorySize(rss), formatMemorySize(pss))
+            : formatMemorySize(rss));
+    };
+
     auto *memoryUsageTimer = new QTimer(this);
-    connect(memoryUsageTimer, &QTimer::timeout, this, [this] {
-        m_memoryUsageLabel->setText(formatMemorySize(currentProcessResidentMemoryBytes()));
-    });
+    connect(memoryUsageTimer, &QTimer::timeout, this, refreshMemoryLabel);
     memoryUsageTimer->start(2000);
-    m_memoryUsageLabel->setText(formatMemorySize(currentProcessResidentMemoryBytes()));
+    refreshMemoryLabel();
 }
 
 void MainWindow::setupConnectivityIndicator()

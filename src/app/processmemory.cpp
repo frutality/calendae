@@ -11,17 +11,21 @@
 #include <mach/mach.h>
 #endif
 
-qint64 currentProcessResidentMemoryBytes()
-{
 #if defined(Q_OS_LINUX)
-    QFile statusFile(QStringLiteral("/proc/self/status"));
-    if (!statusFile.open(QIODevice::ReadOnly | QIODevice::Text))
+namespace {
+// Reads a "Key:   <number> kB" line (the format the kernel uses in
+// /proc/self/status and /proc/self/smaps_rollup) and returns the value in
+// bytes. 0 if the file can't be opened or the key isn't present.
+qint64 readProcKiBValue(const QString &path, const QString &key)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
         return 0;
 
-    QTextStream stream(&statusFile);
+    QTextStream stream(&file);
     QString line;
     while (stream.readLineInto(&line)) {
-        if (!line.startsWith(QStringLiteral("VmRSS:")))
+        if (!line.startsWith(key))
             continue;
         const QStringList parts = line.split(QLatin1Char(' '), Qt::SkipEmptyParts);
         if (parts.size() >= 2)
@@ -29,6 +33,14 @@ qint64 currentProcessResidentMemoryBytes()
         return 0;
     }
     return 0;
+}
+} // namespace
+#endif
+
+qint64 currentProcessResidentMemoryBytes()
+{
+#if defined(Q_OS_LINUX)
+    return readProcKiBValue(QStringLiteral("/proc/self/status"), QStringLiteral("VmRSS:"));
 #elif defined(Q_OS_WIN)
     PROCESS_MEMORY_COUNTERS counters;
     if (GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters)))
@@ -40,6 +52,18 @@ qint64 currentProcessResidentMemoryBytes()
     if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&info), &count) == KERN_SUCCESS)
         return static_cast<qint64>(info.resident_size);
     return 0;
+#else
+    return 0;
+#endif
+}
+
+qint64 currentProcessProportionalSetSizeBytes()
+{
+#if defined(Q_OS_LINUX)
+    // smaps_rollup pre-sums every mapping's Pss, so this is one cheap read
+    // rather than walking all of /proc/self/smaps. Absent on kernels older
+    // than 4.14, in which case this returns 0 and callers fall back to RSS.
+    return readProcKiBValue(QStringLiteral("/proc/self/smaps_rollup"), QStringLiteral("Pss:"));
 #else
     return 0;
 #endif
