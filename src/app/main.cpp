@@ -4,6 +4,7 @@
 #include <QIcon>
 #include <QLibraryInfo>
 #include <QLocale>
+#include <QPixmapCache>
 #include <QTranslator>
 
 int main(int argc, char *argv[])
@@ -15,14 +16,25 @@ int main(int argc, char *argv[])
     // System Monitor can resolve an icon for it (and sets WM_CLASS on X11).
     QApplication::setDesktopFileName(QStringLiteral("calendae"));
 
-    // Fall back to the copies baked into the Qt resource so a dev build run
-    // straight from ./build still has a window icon without `make install`;
-    // once installed, the themed "calendae" icon (hicolor) takes over.
-    QIcon fallbackIcon(QStringLiteral(":/icons/calendae-256.png"));
+    // Window icon straight from the baked-in Qt resource. Deliberately not
+    // QIcon::fromTheme(): the first fromTheme() call anywhere constructs
+    // QIconLoader and parses the entire current desktop icon theme's index
+    // (Breeze/Adwaita index.theme is tens of KB and thousands of entries) —
+    // pure overhead here. The KDE/GNOME task manager still shows the
+    // installed themed "calendae" icon via setDesktopFileName() above; the
+    // in-process icon only needs to cover the title bar and Alt-Tab, and
+    // these bundled PNGs are the same artwork.
+    QIcon appIcon(QStringLiteral(":/icons/calendae-256.png"));
     for (int size : {16, 24, 32, 48, 64, 128})
-        fallbackIcon.addFile(QStringLiteral(":/icons/calendae-%1.png").arg(size));
-    QApplication::setWindowIcon(
-        QIcon::fromTheme(QStringLiteral("calendae"), fallbackIcon));
+        appIcon.addFile(QStringLiteral(":/icons/calendae-%1.png").arg(size));
+    QApplication::setWindowIcon(appIcon);
+
+    // This app renders no bitmap imagery beyond its own small icon, so the
+    // default 10 MB QPixmapCache ceiling is just headroom for growth that
+    // never gets reclaimed. 2 MB is comfortably above what QStyle caches
+    // for a window this size. Glyph and style caches are separate and
+    // untouched by this.
+    QPixmapCache::setCacheLimit(2048); // KiB
 
     QTranslator appTranslator;
     QTranslator qtTranslator;
