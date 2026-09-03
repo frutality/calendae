@@ -3,7 +3,18 @@ project(calendae LANGUAGES CXX)
 
 option(TINY_GCAL_BUILD_TESTS "Build unit tests" ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Network Widgets LinguistTools DBus)
+# The .ts -> .qm compilation needs Qt's LinguistTools component, which a
+# stripped-down static Qt built from qtbase alone does not ship. Turning
+# this OFF drops the single (English) catalogue; main.cpp just doesn't find
+# :/i18n/ at runtime and shows the source strings, which are already
+# English. Keep it ON for any normal Qt SDK build.
+option(CALENDAE_BUILD_TRANSLATIONS "Compile bundled .ts translations (needs Qt LinguistTools)" ON)
+
+set(_calendae_qt_components Core Network Widgets DBus)
+if(CALENDAE_BUILD_TRANSLATIONS)
+    list(APPEND _calendae_qt_components LinguistTools)
+endif()
+find_package(Qt6 6.5 REQUIRED COMPONENTS ${_calendae_qt_components})
 
 qt_standard_project_setup()
 
@@ -205,10 +216,12 @@ qt_add_resources(calendae "app_icons"
         resources/icons/calendae-256.png
 )
 
-qt_add_translations(
-    TARGETS calendae
-    TS_FILES translations/calendae_en_001.ts
-)
+if(CALENDAE_BUILD_TRANSLATIONS)
+    qt_add_translations(
+        TARGETS calendae
+        TS_FILES translations/calendae_en_001.ts
+    )
+endif()
 
 target_link_libraries(calendae
     PRIVATE
