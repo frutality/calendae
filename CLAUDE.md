@@ -24,6 +24,8 @@ Useful configure-time flags (re-run the configure command, not the build command
 - `-DCMAKE_BUILD_TYPE=Release` — single-configuration generators (Makefiles/Ninja); use `--config Release` on the *build* command instead for multi-config generators (Visual Studio).
 - `-DTINY_GCAL_BUILD_TESTS=OFF` — skip building the unit tests (on by default).
 - `-DCALENDAE_BUILD_TRANSLATIONS=OFF` — skip `.ts`→`.qm` compilation and the LinguistTools dependency (for a Qt build that lacks it, e.g. a minimal static Qt). App falls back to the source (English) strings.
+- `-DCALENDAE_VERSION=1.2.3` — pin the version string (CI passes the release tag here). Unset, `cmake/CalendaeVersion.cmake` runs `git describe` and falls back to `0.0.0`. Exposed as `calendae --version` (which answers without opening a display) and `QApplication::applicationVersion()`.
+- `-DCALENDAE_APP_ID=…` (default `com.github.frutality.Calendae`) — reverse-DNS id. The installed `.desktop`, hicolor icons and generated `share/metainfo/<id>.metainfo.xml` are all named after it; `main.cpp` passes it to `setDesktopFileName()`. Also `-DCALENDAE_PROJECT_URL=` and `-DCALENDAE_DEVELOPER_ID=` (lowercase rDNS) feed the metainfo. `scripts/lint-metadata.sh` / the `metadata_lint` CTest validate the generated files (skipped, code 77, without `desktop-file-validate` + `appstreamcli`).
 
 Run the app: `build/calendae` (Linux/Windows) or `open build/calendae.app` (macOS).
 

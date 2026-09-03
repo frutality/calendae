@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Generated from resources/calendae.metainfo.xml.in by CMake. -->
+<component type="desktop-application">
+  <id>@CALENDAE_APP_ID@</id>
+
+  <name>Calendae</name>
+  <summary>Lightweight Google Calendar client</summary>
+
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      Calendae is a lightweight Qt desktop client for a single Google
+      Calendar account. Sign in, browse a month grid, and create, edit or
+      delete events. It is built to stay light on memory compared with
+      full-featured calendar applications.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">@CALENDAE_APP_ID@.desktop</launchable>
+
+  <url type="homepage">@CALENDAE_PROJECT_URL@</url>
+
+  <provides>
+    <binary>calendae</binary>
+  </provides>
+
+  <developer id="@CALENDAE_DEVELOPER_ID@">
+    <name>Alexander Yaskevich</name>
+  </developer>
+
+  <content_rating type="oars-1.1"/>
+
+  <!-- CI rewrites this from the release tag; the configure-time default is
+       the current build's version and date so local validation passes. -->
+  <releases>
+    <release version="@CALENDAE_RELEASE_VERSION@" date="@CALENDAE_RELEASE_DATE@"/>
+  </releases>
+</component>

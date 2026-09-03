@@ -66,6 +66,8 @@ Common configure-time options — add them to the **first** command (re-run it t
 - `-DCMAKE_BUILD_TYPE=Release` — optimized build (single-config generators; on Visual Studio pass `--config Release` to the *build* command instead)
 - `-DTINY_GCAL_BUILD_TESTS=OFF` — skip the unit tests (built by default)
 - `-DCALENDAE_BUILD_TRANSLATIONS=OFF` — skip `.qm` compilation and the LinguistTools requirement
+- `-DCALENDAE_VERSION=1.2.3` — pin the version reported by `calendae --version` (otherwise taken from `git describe`)
+- `-DCALENDAE_APP_ID=…` — reverse-DNS id the installed `.desktop`, icons and AppStream metainfo are named after (default `com.github.frutality.Calendae`; also `-DCALENDAE_PROJECT_URL=` / `-DCALENDAE_DEVELOPER_ID=`)
 
 ## Running
 

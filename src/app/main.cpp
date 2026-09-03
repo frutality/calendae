@@ -1,5 +1,7 @@
 #include "mainwindow.h"
 
+#include "calendae_version.h"
+
 #include <QApplication>
 #include <QIcon>
 #include <QLibraryInfo>
@@ -7,14 +9,29 @@
 #include <QPixmapCache>
 #include <QTranslator>
 
+#include <cstdio>
+#include <cstring>
+
 int main(int argc, char *argv[])
 {
+    // Answer --version without opening a display, so CI and packaging smoke
+    // tests can check the build cheaply.
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--version") == 0 || std::strcmp(argv[i], "-v") == 0) {
+            std::printf("Calendae %s\n", CALENDAE_VERSION_STRING);
+            return 0;
+        }
+    }
+
     QApplication a(argc, argv);
     QApplication::setApplicationName(QStringLiteral("calendae"));
     QApplication::setApplicationDisplayName(QStringLiteral("Calendae"));
-    // Ties the process/window to calendae.desktop so the KDE task manager and
-    // System Monitor can resolve an icon for it (and sets WM_CLASS on X11).
-    QApplication::setDesktopFileName(QStringLiteral("calendae"));
+    QApplication::setApplicationVersion(QStringLiteral(CALENDAE_VERSION_STRING));
+    // Ties the process/window to the installed <app-id>.desktop so the KDE
+    // task manager and System Monitor can resolve an icon for it; also the
+    // Wayland app_id and X11 WM_CLASS used to match it (StartupWMClass in the
+    // .desktop is generated from the same id).
+    QApplication::setDesktopFileName(QStringLiteral(CALENDAE_APP_ID));
 
     // Window icon straight from the baked-in Qt resource. Deliberately not
     // QIcon::fromTheme(): the first fromTheme() call anywhere constructs

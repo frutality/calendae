@@ -1,0 +1,10 @@
+// Generated from src/app/calendae_version.h.in by CMake — do not edit.
+#pragma once
+
+// Full, human-facing version: a clean "1.2.3" for tagged releases, or a
+// `git describe` string such as "0.1.0-5-gabc1234" for builds between tags.
+#define CALENDAE_VERSION_STRING "@CALENDAE_VERSION_STRING@"
+
+// Reverse-DNS application id; matches the installed .desktop basename and the
+// AppStream <id>. Used for QGuiApplication::setDesktopFileName().
+#define CALENDAE_APP_ID "@CALENDAE_APP_ID@"

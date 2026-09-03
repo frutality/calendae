@@ -1,5 +1,33 @@
 cmake_minimum_required(VERSION 3.19)
-project(calendae LANGUAGES CXX)
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(CalendaeVersion)
+
+project(calendae VERSION ${CALENDAE_VERSION} LANGUAGES CXX)
+
+include(GNUInstallDirs)
+
+# Reverse-DNS application id. The installed .desktop entry, the hicolor icon
+# files and the AppStream metainfo are all named after it and generated from
+# templates at configure time, so switching it is a one-line change here (or
+# -DCALENDAE_APP_ID=...). Flatpak and software centres require the files to
+# carry this exact basename.
+set(CALENDAE_APP_ID "com.github.frutality.Calendae" CACHE STRING
+    "Reverse-DNS application id (.desktop / icon / metainfo basename)")
+set(CALENDAE_PROJECT_URL "https://github.com/frutality/calendae" CACHE STRING
+    "Project homepage recorded in the AppStream metainfo")
+# AppStream developer id: lowercase rDNS identifying *you*, not the app
+# (e.g. com.github.<username>). Kept separate because it must be lowercase.
+set(CALENDAE_DEVELOPER_ID "com.github.frutality" CACHE STRING
+    "AppStream <developer id=...> (lowercase rDNS identifying the developer)")
+
+# AppStream <release> entry for local builds; CI overrides both from the tag.
+if(NOT DEFINED CALENDAE_RELEASE_VERSION)
+    set(CALENDAE_RELEASE_VERSION "${CALENDAE_VERSION}")
+endif()
+if(NOT DEFINED CALENDAE_RELEASE_DATE)
+    string(TIMESTAMP CALENDAE_RELEASE_DATE "%Y-%m-%d")
+endif()
 
 option(TINY_GCAL_BUILD_TESTS "Build unit tests" ON)
 
@@ -202,6 +230,15 @@ qt_add_executable(calendae
     src/app/desktopnotifier.cpp
 )
 
+# Version header: CALENDAE_VERSION_STRING (from the git tag / describe) and
+# CALENDAE_APP_ID, consumed by main.cpp for --version and setDesktopFileName().
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/app/calendae_version.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/calendae_version.h"
+    @ONLY
+)
+target_include_directories(calendae PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+
 # Window icon, baked in so a dev build has an icon without `make install`.
 qt_add_resources(calendae "app_icons"
     PREFIX "/icons"
@@ -236,20 +273,35 @@ install(TARGETS calendae
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
-# Freedesktop integration (Linux): the .desktop file plus a themed "calendae"
-# icon are what let the KDE task manager and System Monitor show an icon for
-# the running app. Harmless no-ops on the WIN32/macOS bundle builds.
+# Freedesktop integration (Linux): a .desktop entry, an AppStream metainfo
+# file, and a themed icon under hicolor. All three are named after
+# CALENDAE_APP_ID and generated from templates so the id lives in exactly one
+# place. The metainfo is what software centres and `flatpak-builder` read;
+# keep it valid with scripts/lint-metadata.sh (the metadata_lint test).
+# Harmless no-ops on the WIN32/macOS bundle builds.
 if(UNIX AND NOT APPLE)
-    install(FILES resources/calendae.desktop
+    set(_calendae_desktop "${CMAKE_CURRENT_BINARY_DIR}/${CALENDAE_APP_ID}.desktop")
+    set(_calendae_metainfo "${CMAKE_CURRENT_BINARY_DIR}/${CALENDAE_APP_ID}.metainfo.xml")
+    configure_file(resources/calendae.desktop.in "${_calendae_desktop}" @ONLY)
+    configure_file(resources/calendae.metainfo.xml.in "${_calendae_metainfo}" @ONLY)
+
+    install(FILES "${_calendae_desktop}"
         DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
+    )
+    install(FILES "${_calendae_metainfo}"
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
     )
     foreach(_icon_size IN ITEMS 16 22 24 32 48 64 128 256 512)
         install(FILES resources/icons/calendae-${_icon_size}.png
             DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/${_icon_size}x${_icon_size}/apps
-            RENAME calendae.png
+            RENAME ${CALENDAE_APP_ID}.png
         )
     endforeach()
 endif()
+
+install(FILES LICENSE
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/calendae
+)
 
 qt_generate_deploy_app_script(
     TARGET calendae
@@ -257,6 +309,21 @@ qt_generate_deploy_app_script(
     NO_UNSUPPORTED_PLATFORM_ERROR
 )
 install(SCRIPT ${deploy_script})
+
+# Validate the generated .desktop / metainfo against freedesktop + AppStream
+# rules. Skipped (CTest return code 77) when neither validator is installed.
+if(UNIX AND NOT APPLE)
+    find_program(BASH_PROGRAM bash)
+    if(BASH_PROGRAM)
+        enable_testing()
+        add_test(NAME metadata_lint
+            COMMAND "${BASH_PROGRAM}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint-metadata.sh"
+                    "${CMAKE_CURRENT_BINARY_DIR}"
+        )
+        set_tests_properties(metadata_lint PROPERTIES SKIP_RETURN_CODE 77)
+    endif()
+endif()
 
 if(TINY_GCAL_BUILD_TESTS)
     enable_testing()
