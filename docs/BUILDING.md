@@ -118,6 +118,38 @@ This sets `-DCALENDAE_BUILD_TRANSLATIONS=OFF`, `-DTINY_GCAL_BUILD_TESTS=OFF`,
 Every Qt upgrade or `build-qt-lean.sh` re-run needs a `build-lean.sh` re-run
 too (static linkage).
 
+### Shared lean Qt (what releases ship)
+
+`QT_LINKAGE=shared` on both scripts builds the same stripped-down Qt but
+*dynamically* linked, into its own prefix (`~/Qt/$QT_VERSION-lean-shared`)
+and build dir (`build-lean-shared/`):
+
+```sh
+QT_LINKAGE=shared scripts/build-qt-lean.sh
+QT_LINKAGE=shared scripts/build-lean.sh
+```
+
+It keeps every memory trim except the `-static` + `--gc-sections` dead-code
+drop, so RSS/PSS land between the standard and static-lean numbers. The
+reason to ship it rather than the static build: replacing a bundled
+`libQt6*.so` is enough to satisfy the LGPL relinking right, so no
+object-file "relink kit" has to accompany the download. `build-lean.sh`
+also configures `-DCALENDAE_INSTALL_QT_RUNTIME=OFF` here, so `cmake
+--install` produces just the binary plus the freedesktop files and the
+packaging step (`packaging/linux/`) bundles Qt with `linuxdeploy`.
+
+### Packaging (AppImage + tarball)
+
+`.github/workflows/release.yml` does this on a `v*` tag push; to reproduce
+locally after the shared build above:
+
+```sh
+packaging/linux/build-appimage.sh build-lean-shared ~/Qt/$QT_VERSION-lean-shared dist
+packaging/linux/build-tarball.sh  build-lean-shared/AppDir <version> dist
+```
+
+Needs `linuxdeploy` and `linuxdeploy-plugin-qt` on `PATH`.
+
 ### In CLion
 
 CLion drives CMake through **profiles** (one build dir + option set each).

@@ -303,12 +303,20 @@ install(FILES LICENSE
     DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/calendae
 )
 
-qt_generate_deploy_app_script(
-    TARGET calendae
-    OUTPUT_SCRIPT deploy_script
-    NO_UNSUPPORTED_PLATFORM_ERROR
-)
-install(SCRIPT ${deploy_script})
+# On `cmake --install`, Qt's deploy script also copies the Qt runtime (libs,
+# plugins, translations) next to the binary. Useful for an ad-hoc local
+# install; turned OFF by the packaging scripts, which bundle Qt themselves
+# (linuxdeploy / windeployqt / macdeployqt) and don't want the extra dump.
+option(CALENDAE_INSTALL_QT_RUNTIME
+    "cmake --install also bundles the Qt runtime via Qt's deploy script" ON)
+if(CALENDAE_INSTALL_QT_RUNTIME)
+    qt_generate_deploy_app_script(
+        TARGET calendae
+        OUTPUT_SCRIPT deploy_script
+        NO_UNSUPPORTED_PLATFORM_ERROR
+    )
+    install(SCRIPT ${deploy_script})
+endif()
 
 # Validate the generated .desktop / metainfo against freedesktop + AppStream
 # rules. Skipped (CTest return code 77) when neither validator is installed.

@@ -1,0 +1,164 @@
+name: Release
+
+# Push a tag like v0.1.0 (or v0.1.0-rc.1) to build every artifact and open a
+# DRAFT GitHub release with them attached. workflow_dispatch does the same
+# build for a dry run but publishes nothing.
+#
+# Phases are added job by job (see the release-pipeline plan). Implemented so
+# far: linux-portable (AppImage + tarball).
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version for a dry-run build (nothing is published)'
+        default: '0.0.0-dev'
+
+permissions:
+  contents: read
+
+env:
+  # Last open-source Qt 6.8 LTS tag (6.8.4+ LTS patches are commercial-only).
+  QT_VERSION: '6.8.3'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      is_tag: ${{ steps.v.outputs.is_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: v
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+            is_tag=true
+          else
+            version="${{ inputs.version }}"
+            version="${version#v}"
+            is_tag=false
+          fi
+          echo "version=$version"        >> "$GITHUB_OUTPUT"
+          echo "is_tag=$is_tag"          >> "$GITHUB_OUTPUT"
+          if printf '%s' "$version" | grep -q -- '-'; then
+            echo "prerelease=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          packaging/changelog-extract.sh "$version" | tee RELEASE_NOTES.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: RELEASE_NOTES.md
+
+  linux-portable:
+    needs: prepare
+    # Build on the oldest supported image so the glibc floor stays low
+    # (22.04 = glibc 2.35). If this label is retired, switch to
+    # `container: ubuntu:22.04` on a newer runner.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            ninja-build patchelf file desktop-file-utils appstream \
+            xvfb libfuse2 \
+            libgl1-mesa-dev libdbus-1-dev libssl-dev zlib1g-dev \
+            libfontconfig1-dev libfreetype-dev libsecret-1-dev \
+            libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libxcb-cursor-dev libxcb-glx0-dev libxcb-icccm4-dev libxcb-image0-dev \
+            libxcb-keysyms1-dev libxcb-randr0-dev libxcb-render0-dev \
+            libxcb-render-util0-dev libxcb-shape0-dev libxcb-shm0-dev \
+            libxcb-sync-dev libxcb-util-dev libxcb-xfixes0-dev \
+            libxcb-xinerama0-dev libxcb-xkb-dev
+
+      - name: Cache lean Qt (${{ env.QT_VERSION }}, shared)
+        id: qtcache
+        uses: actions/cache@v4
+        with:
+          path: ~/Qt/${{ env.QT_VERSION }}-lean-shared
+          key: qt-lean-shared-ubuntu2204-${{ env.QT_VERSION }}-${{ hashFiles('scripts/build-qt-lean.sh') }}
+
+      - name: Build lean Qt (on cache miss)
+        if: steps.qtcache.outputs.cache-hit != 'true'
+        run: QT_LINKAGE=shared scripts/build-qt-lean.sh
+
+      - name: Build calendae
+        run: QT_LINKAGE=shared CALENDAE_VERSION="${{ needs.prepare.outputs.version }}" scripts/build-lean.sh
+
+      - name: Fetch linuxdeploy
+        run: |
+          set -euo pipefail
+          dst="$HOME/.local/bin"; mkdir -p "$dst"
+          # TODO: pin to a dated release tag once the pipeline is stable.
+          base='https://github.com/linuxdeploy'
+          curl -fsSL -o "$dst/linuxdeploy" \
+            "$base/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          curl -fsSL -o "$dst/linuxdeploy-plugin-qt" \
+            "$base/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage"
+          chmod +x "$dst"/linuxdeploy*
+          echo "$dst" >> "$GITHUB_PATH"
+
+      - name: Build AppImage + tarball
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: |
+          set -euo pipefail
+          packaging/linux/build-appimage.sh build-lean-shared "$HOME/Qt/$QT_VERSION-lean-shared" dist
+          packaging/linux/build-tarball.sh  build-lean-shared/AppDir "${{ needs.prepare.outputs.version }}" dist
+          ls -l dist
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          xvfb-run -a ./dist/calendae-*-x86_64.AppImage --appimage-extract-and-run --version
+          tar -xzf ./dist/calendae-*-linux-x86_64.tar.gz -C /tmp
+          xvfb-run -a /tmp/calendae-*-linux-x86_64/calendae --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-portable
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare, linux-portable]
+    if: needs.prepare.outputs.is_tag == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble assets + checksums
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find artifacts -type f ! -name RELEASE_NOTES.md -exec cp -t dist {} +
+          ( cd dist && sha256sum * | tee SHA256SUMS )
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: ${{ needs.prepare.outputs.prerelease }}
+          body_path: artifacts/release-notes/RELEASE_NOTES.md
+          files: dist/*
+          fail_on_unmatched_files: true

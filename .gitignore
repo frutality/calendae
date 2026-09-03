@@ -84,6 +84,9 @@ CMakeLists.txt.user*
 /cmake-build-*/
 /.qtcreator/
 
+# Release artifacts from packaging/ scripts
+/dist/
+
 # CTest's own temp output, created if ctest is run from the source root
 # instead of a build directory
 /Testing/

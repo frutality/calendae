@@ -26,17 +26,24 @@
 # ---------------------------------------------------------------------------
 #
 # Usage:
-#   scripts/build-qt-lean.sh [--no-ltcg] [--reconfigure]
+#   scripts/build-qt-lean.sh [--no-ltcg | --ltcg] [--reconfigure]
 #
 #     --no-ltcg      skip link-time optimisation (much faster build, the
-#                    resulting binary is ~1 MB larger in RSS)
+#                    resulting binary is ~1 MB larger in RSS). Default for
+#                    QT_LINKAGE=shared.
+#     --ltcg         force link-time optimisation on. Default for static.
 #     --reconfigure  wipe the Qt build dir and configure from scratch
 #
 # Environment overrides:
 #   QT_VERSION       default 6.11.1  (git tag v$QT_VERSION of qtbase)
+#   QT_LINKAGE       'static' (default) or 'shared'. static = smallest RSS,
+#                    for personal use. shared = what the release pipeline
+#                    ships: Qt stays replaceable .so files, so LGPL relinking
+#                    is trivial, at a small memory cost. Each linkage has its
+#                    own build dir and install prefix.
 #   QT_SRC_DIR       qtbase checkout.        Default: ~/src/qtbase
-#   QT_BUILD_DIR     out-of-source build.    Default: $QT_SRC_DIR-build-lean
-#   QT_LEAN_PREFIX   install prefix.         Default: ~/Qt/$QT_VERSION-lean-static
+#   QT_BUILD_DIR     out-of-source build.    Default: $QT_SRC_DIR-build-lean[-shared]
+#   QT_LEAN_PREFIX   install prefix.         Default: ~/Qt/$QT_VERSION-lean-{static,shared}
 #   JOBS             parallel jobs.          Default: nproc
 #
 set -euo pipefail
@@ -44,15 +51,23 @@ set -euo pipefail
 QT_VERSION="${QT_VERSION:-6.11.1}"
 QT_TAG="v${QT_VERSION}"
 QT_SRC_DIR="${QT_SRC_DIR:-$HOME/src/qtbase}"
-QT_BUILD_DIR="${QT_BUILD_DIR:-${QT_SRC_DIR}-build-lean}"
-QT_LEAN_PREFIX="${QT_LEAN_PREFIX:-$HOME/Qt/${QT_VERSION}-lean-static}"
+
+QT_LINKAGE="${QT_LINKAGE:-static}"
+case "$QT_LINKAGE" in
+    static) _prefix_tag="lean-static"; _build_tag="lean";        _link_flag="-static"; LTCG=1 ;;
+    shared) _prefix_tag="lean-shared"; _build_tag="lean-shared"; _link_flag="-shared"; LTCG=0 ;;
+    *) echo "QT_LINKAGE must be 'static' or 'shared' (got '$QT_LINKAGE')" >&2; exit 2 ;;
+esac
+
+QT_BUILD_DIR="${QT_BUILD_DIR:-${QT_SRC_DIR}-build-${_build_tag}}"
+QT_LEAN_PREFIX="${QT_LEAN_PREFIX:-$HOME/Qt/${QT_VERSION}-${_prefix_tag}}"
 JOBS="${JOBS:-$(nproc)}"
 
-LTCG=1
 RECONFIGURE=0
 for arg in "$@"; do
     case "$arg" in
         --no-ltcg)     LTCG=0 ;;
+        --ltcg)        LTCG=1 ;;
         --reconfigure) RECONFIGURE=1 ;;
         -h|--help)     sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; $d'; exit 0 ;;
         *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
@@ -91,7 +106,7 @@ fi
 #                       QtTest -- none are used
 CONFIGURE_FLAGS=(
     -prefix "$QT_LEAN_PREFIX"
-    -static -release -optimize-size
+    "$_link_flag" -release -optimize-size
     -no-icu
     -no-opengl -no-feature-vulkan
     -no-feature-printsupport -no-feature-concurrent

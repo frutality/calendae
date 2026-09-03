@@ -10,7 +10,9 @@
 #     source strings are already English)
 #   * unit tests are not built (the lean Qt has no QtTest) -- run the test
 #     suite from build-standard.sh instead
-#   * statically linked: a Qt rebuild means rebuilding calendae too
+#   * QT_LINKAGE=static (default): a Qt rebuild means rebuilding calendae too
+#   * CALENDAE_INSTALL_QT_RUNTIME=OFF: `cmake --install` of this tree is the
+#     bare binary + .desktop/icons/metainfo -- packaging bundles Qt itself
 #
 # Usage:
 #   scripts/build-lean.sh [--clean] [--run]
@@ -20,8 +22,12 @@
 #
 # Environment overrides:
 #   QT_VERSION      default 6.11.1
-#   QT_LEAN_PREFIX  lean Qt install.  Default: ~/Qt/$QT_VERSION-lean-static
-#   BUILD_DIR       Default: <repo>/build-lean
+#   QT_LINKAGE      'static' (default) or 'shared' -- must match the linkage
+#                   build-qt-lean.sh was run with. 'shared' is what the
+#                   release pipeline ships.
+#   QT_LEAN_PREFIX  lean Qt install.  Default: ~/Qt/$QT_VERSION-lean-{static,shared}
+#   BUILD_DIR       Default: <repo>/build-lean  (static) / build-lean-shared
+#   CALENDAE_VERSION  pin the version string (else `git describe`)
 #   JOBS            Default: nproc
 #
 set -euo pipefail
@@ -29,8 +35,16 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 QT_VERSION="${QT_VERSION:-6.11.1}"
-QT_LEAN_PREFIX="${QT_LEAN_PREFIX:-$HOME/Qt/${QT_VERSION}-lean-static}"
-BUILD_DIR="${BUILD_DIR:-$ROOT/build-lean}"
+
+QT_LINKAGE="${QT_LINKAGE:-static}"
+case "$QT_LINKAGE" in
+    static) _prefix_tag="lean-static"; _def_build="$ROOT/build-lean" ;;
+    shared) _prefix_tag="lean-shared"; _def_build="$ROOT/build-lean-shared" ;;
+    *) echo "QT_LINKAGE must be 'static' or 'shared' (got '$QT_LINKAGE')" >&2; exit 2 ;;
+esac
+
+QT_LEAN_PREFIX="${QT_LEAN_PREFIX:-$HOME/Qt/${QT_VERSION}-${_prefix_tag}}"
+BUILD_DIR="${BUILD_DIR:-$_def_build}"
 JOBS="${JOBS:-$(nproc)}"
 RUN=0
 
@@ -56,12 +70,17 @@ keychain_src="$ROOT/build/_deps/qtkeychain-src"
 keychain_arg=()
 [ -d "$keychain_src" ] && keychain_arg=( -DFETCHCONTENT_SOURCE_DIR_QTKEYCHAIN="$keychain_src" )
 
-echo ">> configure  (lean static Qt at $QT_LEAN_PREFIX)"
+_extra=( -DCALENDAE_INSTALL_QT_RUNTIME=OFF )
+[ -n "${CALENDAE_VERSION:-}" ] && _extra+=( -DCALENDAE_VERSION="$CALENDAE_VERSION" )
+[ -n "${CALENDAE_APP_ID:-}" ]  && _extra+=( -DCALENDAE_APP_ID="$CALENDAE_APP_ID" )
+
+echo ">> configure  (lean $QT_LINKAGE Qt at $QT_LEAN_PREFIX)"
 cmake -S "$ROOT" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=MinSizeRel \
     -DCMAKE_PREFIX_PATH="$QT_LEAN_PREFIX" \
     -DCALENDAE_BUILD_TRANSLATIONS=OFF \
     -DTINY_GCAL_BUILD_TESTS=OFF \
+    "${_extra[@]}" \
     -DCMAKE_CXX_FLAGS="-ffunction-sections -fdata-sections" \
     -DCMAKE_EXE_LINKER_FLAGS="-Wl,--gc-sections -Wl,--as-needed" \
     "${keychain_arg[@]}"

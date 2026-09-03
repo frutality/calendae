@@ -17,3 +17,12 @@ While the version is `0.x`, anything may change on a minor bump.
 - `scripts/lint-metadata.sh` plus a `metadata_lint` CTest that validate the
   generated `.desktop` and metainfo files.
 - `LICENSE` (MIT), installed to `share/doc/calendae/`.
+- Linux release pipeline (`.github/workflows/release.yml`): a tag push builds
+  an AppImage and a portable tarball and opens a draft GitHub release.
+- `QT_LINKAGE=shared` in `scripts/build-qt-lean.sh` / `scripts/build-lean.sh`
+  for a dynamically-linked lean Qt (keeps the memory trims; Qt stays
+  replaceable `.so` so LGPL relinking is trivial). Static stays the default.
+- `packaging/linux/build-appimage.sh`, `packaging/linux/build-tarball.sh`,
+  `packaging/changelog-extract.sh`.
+- `CALENDAE_INSTALL_QT_RUNTIME` CMake option (default ON) — off for packaging
+  builds that bundle Qt themselves.
