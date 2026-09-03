@@ -112,7 +112,7 @@ private:
                           int pagesFetched = 0);
 
     AuthManager *m_authManager;
-    QNetworkAccessManager *m_network;
+    QNetworkAccessManager *m_network; // borrowed from m_authManager, not owned
     quint64 m_nextFetchRequestId = 1;
 };
 

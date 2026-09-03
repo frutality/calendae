@@ -62,6 +62,12 @@ public:
     // Valid only while state() == SignedIn.
     QString accessToken() const { return m_accessToken; }
 
+    // The single process-wide QNetworkAccessManager. GoogleCalendarApi (and
+    // everything layered on it) borrows this instead of constructing its
+    // own, so the app keeps one HTTP connection pool and one TLS context,
+    // not two. Owned by AuthManager and outlives every borrower.
+    QNetworkAccessManager *networkAccessManager() const { return m_network; }
+
     // A stable, non-reversible per-account identifier (hex SHA-256 of the
     // current refresh token), for namespacing on-disk caches so one
     // account's data can't be shown for another. Empty when no refresh

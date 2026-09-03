@@ -77,7 +77,7 @@ void insertRemindersIfSet(QJsonObject &obj, const NewEventRequest &request)
 GoogleCalendarApi::GoogleCalendarApi(AuthManager *authManager, QObject *parent)
     : QObject(parent)
     , m_authManager(authManager)
-    , m_network(new QNetworkAccessManager(this))
+    , m_network(authManager->networkAccessManager())
 {
 }
 
