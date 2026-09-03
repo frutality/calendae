@@ -13,7 +13,7 @@ Configure + build (from project root):
 cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/your/Qt/6.x.y/gcc_64
 cmake --build build --parallel
 ```
-Omit `CMAKE_PREFIX_PATH` if Qt is on CMake's default search path (e.g. installed via a Linux distro package manager). Requires Qt 6.4+ (Core, Widgets, Network, DBus, and — unless `-DCALENDAE_BUILD_TRANSLATIONS=OFF` — LinguistTools) and Git (QtKeychain is fetched via `FetchContent` at configure time).
+Omit `CMAKE_PREFIX_PATH` if Qt is on CMake's default search path (e.g. installed via a Linux distro package manager). Requires Qt 6.5+ (Core, Widgets, Network, DBus, and — unless `-DCALENDAE_BUILD_TRANSLATIONS=OFF` — LinguistTools) and Git (QtKeychain is fetched via `FetchContent` at configure time). The 6.5 floor is real: the date/time code uses `QTimeZone::LocalTime` (new in 6.5).
 
 There are wrapper scripts and a fuller guide — see `docs/BUILDING.md`:
 - `scripts/build-standard.sh` — the command above, plus `ctest`.
