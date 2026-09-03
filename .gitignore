@@ -92,3 +92,10 @@ CMakeLists.txt.user*
 .idea/
 .mcp.json
 CMakeUserPresets.json
+
+# Local profiling / memory-measurement scratch (not tracked)
+/performance/
+heaptrack.*.zst
+perf.data*
+callgrind.out.*
+massif.out.*

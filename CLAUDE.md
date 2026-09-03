@@ -13,11 +13,17 @@ Configure + build (from project root):
 cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/your/Qt/6.x.y/gcc_64
 cmake --build build --parallel
 ```
-Omit `CMAKE_PREFIX_PATH` if Qt is on CMake's default search path (e.g. installed via a Linux distro package manager). Requires Qt 6.5+ (Core, Widgets, Network, LinguistTools, DBus) and Git (QtKeychain is fetched via `FetchContent` at configure time).
+Omit `CMAKE_PREFIX_PATH` if Qt is on CMake's default search path (e.g. installed via a Linux distro package manager). Requires Qt 6.4+ (Core, Widgets, Network, DBus, and — unless `-DCALENDAE_BUILD_TRANSLATIONS=OFF` — LinguistTools) and Git (QtKeychain is fetched via `FetchContent` at configure time).
+
+There are wrapper scripts and a fuller guide — see `docs/BUILDING.md`:
+- `scripts/build-standard.sh` — the command above, plus `ctest`.
+- `scripts/build-qt-lean.sh` + `scripts/build-lean.sh` — the low-RAM build: calendae linked against a stripped-down **static** Qt built from qtbase source. ~50 MB RSS / ~32 MB PSS vs ~68 / ~45 standard. Static, no translations, no unit tests (run those from the standard build).
+- `scripts/measure-memory.sh` — launch a binary and dump RSS/PSS/`pmap`.
 
 Useful configure-time flags (re-run the configure command, not the build command, to change these):
 - `-DCMAKE_BUILD_TYPE=Release` — single-configuration generators (Makefiles/Ninja); use `--config Release` on the *build* command instead for multi-config generators (Visual Studio).
 - `-DTINY_GCAL_BUILD_TESTS=OFF` — skip building the unit tests (on by default).
+- `-DCALENDAE_BUILD_TRANSLATIONS=OFF` — skip `.ts`→`.qm` compilation and the LinguistTools dependency (for a Qt build that lacks it, e.g. a minimal static Qt). App falls back to the source (English) strings.
 
 Run the app: `build/calendae` (Linux/Windows) or `open build/calendae.app` (macOS).
 

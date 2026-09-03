@@ -66,6 +66,8 @@ cmake --build build --parallel
 
 If you change one of these options later, re-run the first (configure) command with the new flag — CMake will pick it up without needing a clean rebuild.
 
+See [`docs/BUILDING.md`](docs/BUILDING.md) for wrapper scripts, CLion setup, and a memory-optimised build variant (calendae linked against a stripped static Qt — roughly 30% lower RAM use).
+
 ## Running
 
 The built binary lands under the `build` directory:
