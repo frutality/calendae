@@ -18,7 +18,11 @@ While the version is `0.x`, anything may change on a minor bump.
   generated `.desktop` and metainfo files.
 - `LICENSE` (MIT), installed to `share/doc/calendae/`.
 - Linux release pipeline (`.github/workflows/release.yml`): a tag push builds
-  an AppImage and a portable tarball and opens a draft GitHub release.
+  an AppImage, a portable tarball and a self-contained `.deb`, and opens a
+  draft GitHub release.
+- `packaging/linux/build-deb.sh` — bundles Qt under `/usr/lib/calendae`
+  (so the package is independent of the distro Qt version), `dpkg-shlibdeps`
+  for the base-library depends, dpkg triggers for the desktop/icon caches.
 - `QT_LINKAGE=shared` in `scripts/build-qt-lean.sh` / `scripts/build-lean.sh`
   for a dynamically-linked lean Qt (keeps the memory trims; Qt stays
   replaceable `.so` so LGPL relinking is trivial). Static stays the default.

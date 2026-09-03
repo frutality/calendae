@@ -62,7 +62,7 @@ jobs:
           name: release-notes
           path: RELEASE_NOTES.md
 
-  linux-portable:
+  linux:
     needs: prepare
     # Build on the oldest supported image so the glibc floor stays low
     # (22.04 = glibc 2.35). If this label is retired, switch to
@@ -78,7 +78,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
             ninja-build patchelf file desktop-file-utils appstream \
-            xvfb libfuse2 \
+            dpkg-dev lintian xvfb libfuse2 \
             libgl1-mesa-dev libdbus-1-dev libssl-dev zlib1g-dev \
             libfontconfig1-dev libfreetype-dev libsecret-1-dev \
             libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev \
@@ -115,14 +115,21 @@ jobs:
           chmod +x "$dst"/linuxdeploy*
           echo "$dst" >> "$GITHUB_PATH"
 
-      - name: Build AppImage + tarball
+      - name: Build AppImage + tarball + deb
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'
         run: |
           set -euo pipefail
           packaging/linux/build-appimage.sh build-lean-shared "$HOME/Qt/$QT_VERSION-lean-shared" dist
           packaging/linux/build-tarball.sh  build-lean-shared/AppDir "${{ needs.prepare.outputs.version }}" dist
+          packaging/linux/build-deb.sh      build-lean-shared/AppDir "${{ needs.prepare.outputs.version }}" dist
           ls -l dist
+
+      - name: Lint deb (informational)
+        run: |
+          lintian --no-tag-display-limit --fail-on error --info \
+            --suppress-tags embedded-library,binary-or-shlib-defines-rpath,sharedobject-in-library-directory-missing-soname,library-not-linked-against-libc,package-contains-no-arch-dependent-files,no-symbols-control-file,binary-without-manpage,statically-linked-binary,elevated-privileges \
+            dist/calendae_*.deb || echo "::warning::lintian reported issues (non-blocking)"
 
       - name: Smoke test
         run: |
@@ -130,15 +137,17 @@ jobs:
           xvfb-run -a ./dist/calendae-*-x86_64.AppImage --appimage-extract-and-run --version
           tar -xzf ./dist/calendae-*-linux-x86_64.tar.gz -C /tmp
           xvfb-run -a /tmp/calendae-*-linux-x86_64/calendae --version
+          dpkg-deb -x ./dist/calendae_*.deb /tmp/debroot
+          xvfb-run -a /tmp/debroot/usr/bin/calendae --version
 
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-portable
+          name: linux
           path: dist/*
           if-no-files-found: error
 
   publish:
-    needs: [prepare, linux-portable]
+    needs: [prepare, linux]
     if: needs.prepare.outputs.is_tag == 'true'
     runs-on: ubuntu-24.04
     permissions:

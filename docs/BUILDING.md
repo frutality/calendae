@@ -138,7 +138,7 @@ also configures `-DCALENDAE_INSTALL_QT_RUNTIME=OFF` here, so `cmake
 --install` produces just the binary plus the freedesktop files and the
 packaging step (`packaging/linux/`) bundles Qt with `linuxdeploy`.
 
-### Packaging (AppImage + tarball)
+### Packaging (AppImage + tarball + deb)
 
 `.github/workflows/release.yml` does this on a `v*` tag push; to reproduce
 locally after the shared build above:
@@ -146,9 +146,15 @@ locally after the shared build above:
 ```sh
 packaging/linux/build-appimage.sh build-lean-shared ~/Qt/$QT_VERSION-lean-shared dist
 packaging/linux/build-tarball.sh  build-lean-shared/AppDir <version> dist
+packaging/linux/build-deb.sh      build-lean-shared/AppDir <version> dist
 ```
 
-Needs `linuxdeploy` and `linuxdeploy-plugin-qt` on `PATH`.
+`build-appimage.sh` needs `linuxdeploy` and `linuxdeploy-plugin-qt` on
+`PATH` and populates `build-lean-shared/AppDir`, which the other two reuse.
+The `.deb` installs the whole bundle under `/usr/lib/calendae` with
+`/usr/bin/calendae` a symlink into it, so it carries its own Qt and only
+depends on base X/font libraries (`dpkg-shlibdeps`) — it installs on
+anything from Ubuntu 22.04 to Debian 13 regardless of their Qt version.
 
 ### In CLion
 
