@@ -162,11 +162,18 @@ Unlike the three formats above, the Flatpak build does **not** use the lean
 Qt: it links against the Qt already provided by the `org.kde.Platform`
 runtime, per normal Flatpak convention (bundling your own Qt inside a
 Flatpak alongside the runtime's is both redundant and against Flathub
-guidelines). So its RSS/PSS lands close to the *standard* build's numbers,
-shared with every other Qt/KDE app already using that runtime on the same
-machine -- this is the trade-off for sandboxing + easy updates, not the
-memory-optimized option. Prefer the AppImage/tarball/deb above when the
-30 MB PSS target actually matters.
+guidelines). Measured on a real machine this comes to ~130 MB RSS/PSS --
+noticeably above even the *standard* build (~68/~45), not just short of the
+lean one. Two things stack up: `org.kde.Platform` ships every Qt module
+(ICU, OpenGL, SQL, print support, ...) with none of the lean build's
+trims, and it pulls in KDE Frameworks for native Plasma theming, which the
+other builds never load at all. PSS also can't do its usual job of
+discounting shared pages until *other* Flatpak apps on the same
+`org.kde.Platform//6.9` are actually running alongside it -- on a machine
+with only this one Flatpak app installed, PSS lands right next to RSS.
+This is the deliberate trade-off of shipping via Flatpak (sandboxing +
+Flathub-style updates) rather than a regression to fix: prefer the
+AppImage/tarball/deb above whenever the RAM target is the actual goal.
 
 ```sh
 flatpak remote-add --if-not-exists --user flathub \

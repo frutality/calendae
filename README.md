@@ -6,6 +6,8 @@ Why it exists: I was trying to decrease RAM usage on my somewhat old PC, but eve
 
 Currently, with four active calendars, Calendae uses ~30 MB of RAM (PSS) on my machine, or ~50 MB (RSS) — built as the low-RAM variant described in [`docs/BUILDING.md`](docs/BUILDING.md). A standard build is roughly ~45 MB PSS / ~68 MB RSS.
 
+The Flatpak release is the exception: it runs on the full KDE runtime rather than the trimmed-down Qt above, so it lands around ~130 MB PSS/RSS — closer to the calendar apps this project was built to avoid. Good for a quick try; if the RAM target is the reason you're here, grab the AppImage, `.deb` or tarball build instead.
+
 ## Requirements
 
 - **CMake** 3.19 or newer
