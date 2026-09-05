@@ -6,7 +6,7 @@ name: Release
 #
 # Phases are added job by job (see the release-pipeline plan). Implemented so
 # far: linux (AppImage + tarball + self-contained deb), flatpak (single-file
-# bundle built against the KDE runtime).
+# bundle built against the KDE runtime), windows (portable zip).
 
 on:
   push:
@@ -191,8 +191,52 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  windows:
+    needs: prepare
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache Qt
+        id: qtcache
+        uses: actions/cache@v4
+        with:
+          path: C:\Qt\${{ env.QT_VERSION }}
+          key: qt-windows-${{ env.QT_VERSION }}
+
+      - name: Install Qt (on cache miss)
+        if: steps.qtcache.outputs.cache-hit != 'true'
+        run: |
+          pip install aqtinstall==3.3.0
+          aqt install-qt windows desktop ${{ env.QT_VERSION }} win64_msvc2022_64 -O C:\Qt -m qttools
+
+      - name: Build + package
+        run: >-
+          packaging\windows\build-zip.ps1
+          -Version "${{ needs.prepare.outputs.version }}"
+          -QtDir "C:\Qt\${{ env.QT_VERSION }}\msvc2022_64"
+
+      - name: Smoke test
+        run: |
+          $exe = Get-ChildItem -Recurse -Filter calendae.exe -Path dist | Select-Object -First 1
+          & $exe.FullName --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+          if-no-files-found: error
+
   publish:
-    needs: [prepare, linux, flatpak]
+    needs: [prepare, linux, flatpak, windows]
     if: needs.prepare.outputs.is_tag == 'true'
     runs-on: ubuntu-24.04
     permissions:

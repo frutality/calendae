@@ -195,6 +195,35 @@ network (also needed for the OAuth redirect to reach the sandboxed loopback
 server), Wayland/X11, and `--talk-name` for the two D-Bus keyring backends
 (Secret Service, KWallet) `src/auth/keychainjob.h` can fall back through.
 
+### Windows
+
+There is no lean Qt for Windows (`scripts/build-qt-lean.sh` is Linux-only),
+so the Windows release links the same full, dynamically-linked Qt as the
+`build-standard.sh` build -- no separate low-RAM Windows variant exists.
+Deployment is a portable zip, not an installer: unzip and run, matching the
+AppImage/tarball experience rather than the `.deb`'s (no Start Menu entry,
+no uninstaller, no registry writes).
+
+```powershell
+pip install aqtinstall==3.3.0
+aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -O C:\Qt -m qttools
+
+packaging\windows\build-zip.ps1 -Version <version> -QtDir C:\Qt\6.8.3\msvc2022_64
+```
+
+Needs a Visual Studio "Developer" environment on `PATH` (`cl.exe`) --
+`.github/workflows/release.yml` sets this up via `ilammy/msvc-dev-cmd`; a
+local run should use "Developer PowerShell for VS" or run
+`vcvarsall.bat x64` first. The script runs `windeployqt --compiler-runtime`,
+which also copies the MSVC redistributable DLLs (`vcruntime140.dll` etc.)
+next to `calendae.exe`, so the zip runs on a clean Windows install without
+the user separately installing the Visual C++ Redistributable.
+
+Not code-signed: Windows SmartScreen will show an "unknown publisher"
+warning on first run. A real code-signing certificate costs money and
+identity verification that's out of scope for this project; users have to
+click through it (or `Unblock-File` the zip's contents).
+
 ### In CLion
 
 CLion drives CMake through **profiles** (one build dir + option set each).

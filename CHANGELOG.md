@@ -35,3 +35,10 @@ While the version is `0.x`, anything may change on a minor bump.
   `packaging/flatpak/build-flatpak.sh`, producing a single-file `.flatpak`
   bundle. Wired into `release.yml` as its own job feeding the same draft
   release as the other Linux artifacts.
+- Windows packaging: `packaging/windows/build-zip.ps1` builds against Qt
+  installed via `aqtinstall` and runs `windeployqt --compiler-runtime` to
+  produce a self-contained, unzip-and-run portable build (no installer, not
+  code-signed). A Windows `.rc` resource (`resources/calendae.rc.in`) now
+  embeds a version resource and `resources/icons/calendae.ico` as the
+  `.exe` icon. Wired into `release.yml` as its own job (`windows-2022`
+  runner) feeding the same draft release.

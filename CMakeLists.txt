@@ -260,6 +260,18 @@ if(CALENDAE_BUILD_TRANSLATIONS)
     )
 endif()
 
+# Windows: embed the .ico (Explorer/taskbar icon -- the qt_add_resources
+# block above only sets the in-app QWidget window icon) and a VERSIONINFO
+# resource so File Properties > Details shows something other than
+# "Unknown". calendae.rc.in references calendae.ico by relative path, so
+# the icon must sit next to the generated .rc at configure time.
+if(WIN32)
+    set(_calendae_rc "${CMAKE_CURRENT_BINARY_DIR}/calendae.rc")
+    configure_file(resources/calendae.rc.in "${_calendae_rc}" @ONLY)
+    configure_file(resources/icons/calendae.ico "${CMAKE_CURRENT_BINARY_DIR}/calendae.ico" COPYONLY)
+    target_sources(calendae PRIVATE "${_calendae_rc}")
+endif()
+
 target_link_libraries(calendae
     PRIVATE
         tgc_auth
