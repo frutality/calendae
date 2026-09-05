@@ -30,3 +30,8 @@ While the version is `0.x`, anything may change on a minor bump.
   `packaging/changelog-extract.sh`.
 - `CALENDAE_INSTALL_QT_RUNTIME` CMake option (default ON) — off for packaging
   builds that bundle Qt themselves.
+- Flatpak packaging: `flatpak/com.github.frutality.Calendae.yml` (builds
+  against the `org.kde.Platform//6.9` runtime, not the lean Qt) and
+  `packaging/flatpak/build-flatpak.sh`, producing a single-file `.flatpak`
+  bundle. Wired into `release.yml` as its own job feeding the same draft
+  release as the other Linux artifacts.

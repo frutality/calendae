@@ -87,6 +87,9 @@ CMakeLists.txt.user*
 # Release artifacts from packaging/ scripts
 /dist/
 
+# flatpak-builder's local build cache/state
+/.flatpak-builder/
+
 # CTest's own temp output, created if ctest is run from the source root
 # instead of a build directory
 /Testing/

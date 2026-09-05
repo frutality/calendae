@@ -156,6 +156,38 @@ The `.deb` installs the whole bundle under `/usr/lib/calendae` with
 depends on base X/font libraries (`dpkg-shlibdeps`) — it installs on
 anything from Ubuntu 22.04 to Debian 13 regardless of their Qt version.
 
+### Flatpak
+
+Unlike the three formats above, the Flatpak build does **not** use the lean
+Qt: it links against the Qt already provided by the `org.kde.Platform`
+runtime, per normal Flatpak convention (bundling your own Qt inside a
+Flatpak alongside the runtime's is both redundant and against Flathub
+guidelines). So its RSS/PSS lands close to the *standard* build's numbers,
+shared with every other Qt/KDE app already using that runtime on the same
+machine -- this is the trade-off for sandboxing + easy updates, not the
+memory-optimized option. Prefer the AppImage/tarball/deb above when the
+30 MB PSS target actually matters.
+
+```sh
+flatpak remote-add --if-not-exists --user flathub \
+    https://flathub.org/repo/flathub.flatpakrepo
+flatpak install --user -y flathub org.kde.Platform//6.9 org.kde.Sdk//6.9
+
+packaging/flatpak/build-flatpak.sh <version> dist
+flatpak install --user -y --bundle dist/calendae-*.flatpak
+flatpak run com.github.frutality.Calendae
+```
+
+The manifest (`flatpak/com.github.frutality.Calendae.yml`) builds from the
+local checkout (`type: dir`, not a pinned git source) so CI always packages
+exactly the commit it just built and tested -- see the comment in the
+manifest for what a real Flathub submission would need instead (a pinned
+git source for calendae, no `--share=network` at build time, and qtkeychain
+vendored as its own source rather than fetched live). `finish-args` grants
+network (also needed for the OAuth redirect to reach the sandboxed loopback
+server), Wayland/X11, and `--talk-name` for the two D-Bus keyring backends
+(Secret Service, KWallet) `src/auth/keychainjob.h` can fall back through.
+
 ### In CLion
 
 CLion drives CMake through **profiles** (one build dir + option set each).

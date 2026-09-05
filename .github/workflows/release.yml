@@ -5,7 +5,8 @@ name: Release
 # build for a dry run but publishes nothing.
 #
 # Phases are added job by job (see the release-pipeline plan). Implemented so
-# far: linux (AppImage + tarball + self-contained deb).
+# far: linux (AppImage + tarball + self-contained deb), flatpak (single-file
+# bundle built against the KDE runtime).
 
 on:
   push:
@@ -148,8 +149,50 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  flatpak:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cache flatpak runtime + SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/flatpak
+          key: flatpak-org.kde.Platform-6.9
+
+      - name: Install flatpak-builder and the KDE runtime/SDK
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          # elfutils is only a Recommends of flatpak-builder, but it's a hard
+          # requirement in practice: flatpak-builder shells out to eu-strip
+          # while committing the build and fails without it.
+          sudo apt-get install --no-install-recommends -y \
+            flatpak flatpak-builder elfutils xvfb
+          flatpak remote-add --if-not-exists --user flathub \
+            https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.kde.Platform//6.9 org.kde.Sdk//6.9
+
+      - name: Build flatpak bundle
+        run: packaging/flatpak/build-flatpak.sh "${{ needs.prepare.outputs.version }}" dist
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          flatpak install --user -y --bundle dist/calendae-*.flatpak
+          xvfb-run -a flatpak run com.github.frutality.Calendae --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: dist/*
+          if-no-files-found: error
+
   publish:
-    needs: [prepare, linux]
+    needs: [prepare, linux, flatpak]
     if: needs.prepare.outputs.is_tag == 'true'
     runs-on: ubuntu-24.04
     permissions:

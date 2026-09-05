@@ -1,0 +1,63 @@
+id: com.github.frutality.Calendae
+runtime: org.kde.Platform
+runtime-version: '6.9'
+sdk: org.kde.Sdk
+command: calendae
+
+# QtKeychain's CMake install() also ships its dev files (headers, the
+# static .a, CMake package config) since calendae vendors it via
+# FetchContent rather than finding it pre-built -- none of that is needed
+# to run calendae, only to link it, which already happened.
+cleanup:
+  - /include
+  - /lib/cmake
+  - /lib64/cmake
+  - /lib/*.a
+  - /lib64/*.a
+  - /mkspecs
+
+# RFC 8252 OAuth loopback flow: the system browser (running outside this
+# sandbox) must reach OAuthLoopbackServer on 127.0.0.1. --share=network puts
+# the app in the host's network namespace (not just "internet access"), so
+# the host's 127.0.0.1 is the same loopback the sandboxed app listens on --
+# without it the redirect would never arrive.
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  # Secret Service (libsecret backend) and KWallet's own D-Bus protocol are
+  # both real session-bus services, not portals, so each needs an explicit
+  # --talk-name (see src/auth/keychainjob.h for the storage fallback chain
+  # this is wiring up). Opening the system browser goes through the
+  # OpenURI portal instead, which needs no extra permission.
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.kde.kwalletd6
+  - --talk-name=org.kde.kwalletd5
+  # oauth_client.json pre-supply path (see CLAUDE.md "First run / OAuth
+  # credentials"): read-only access to the *real* ~/.config/calendae, since
+  # Flatpak otherwise remaps XDG_CONFIG_HOME to a private per-app directory.
+  - --filesystem=xdg-config/calendae:ro
+
+modules:
+  - name: calendae
+    buildsystem: cmake
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DCALENDAE_INSTALL_QT_RUNTIME=OFF
+      - -DTINY_GCAL_BUILD_TESTS=OFF
+      - -DCALENDAE_APP_ID=com.github.frutality.Calendae
+    # QtKeychain is fetched by CMakeLists.txt via FetchContent at configure
+    # time; flatpak-builder sandboxes module builds with no network access
+    # by default, so that clone would otherwise fail. --share=network here
+    # is a deliberate, narrow exception for this one module -- everything
+    # else in the manifest stays offline/reproducible. A future Flathub
+    # submission would replace this with a proper pinned git source for
+    # qtkeychain instead (Flathub does not allow network access at build
+    # time).
+    build-options:
+      build-args:
+        - --share=network
+    sources:
+      - type: dir
+        path: ..
