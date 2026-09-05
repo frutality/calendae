@@ -93,4 +93,6 @@ command -v strip >/dev/null && strip "$BUILD_DIR/calendae"
 echo ">> done: $BUILD_DIR/calendae"
 echo "   measure:  scripts/measure-memory.sh $BUILD_DIR/calendae"
 
-[ "$RUN" = 1 ] && exec "$BUILD_DIR/calendae"
+if [ "$RUN" = 1 ]; then
+    exec "$BUILD_DIR/calendae"
+fi
