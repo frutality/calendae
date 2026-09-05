@@ -5,7 +5,7 @@ name: Release
 # build for a dry run but publishes nothing.
 #
 # Phases are added job by job (see the release-pipeline plan). Implemented so
-# far: linux-portable (AppImage + tarball).
+# far: linux (AppImage + tarball + self-contained deb).
 
 on:
   push:
@@ -103,15 +103,17 @@ jobs:
         run: QT_LINKAGE=shared CALENDAE_VERSION="${{ needs.prepare.outputs.version }}" scripts/build-lean.sh
 
       - name: Fetch linuxdeploy
+        env:
+          LINUXDEPLOY_TAG: '1-alpha-20251107-1'
+          LINUXDEPLOY_QT_TAG: '1-alpha-20250213-1'
         run: |
           set -euo pipefail
           dst="$HOME/.local/bin"; mkdir -p "$dst"
-          # TODO: pin to a dated release tag once the pipeline is stable.
           base='https://github.com/linuxdeploy'
           curl -fsSL -o "$dst/linuxdeploy" \
-            "$base/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+            "$base/linuxdeploy/releases/download/$LINUXDEPLOY_TAG/linuxdeploy-x86_64.AppImage"
           curl -fsSL -o "$dst/linuxdeploy-plugin-qt" \
-            "$base/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage"
+            "$base/linuxdeploy-plugin-qt/releases/download/$LINUXDEPLOY_QT_TAG/linuxdeploy-plugin-qt-x86_64.AppImage"
           chmod +x "$dst"/linuxdeploy*
           echo "$dst" >> "$GITHUB_PATH"
 
