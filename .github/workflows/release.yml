@@ -278,7 +278,43 @@ jobs:
         run: |
           set -euo pipefail
           hdiutil attach dist/calendae-*-macos.dmg -nobrowse -mountpoint /Volumes/calendae-dmg
-          /Volumes/calendae-dmg/calendae.app/Contents/MacOS/calendae --version
+          APP=/Volumes/calendae-dmg/calendae.app
+          BIN="$APP/Contents/MacOS/calendae"
+
+          # universal: both slices present
+          lipo -archs "$BIN"
+          lipo -archs "$BIN" | grep -qw x86_64
+          lipo -archs "$BIN" | grep -qw arm64
+
+          plutil -lint "$APP/Contents/Info.plist"
+          test "$(defaults read "$APP/Contents/Info" CFBundleIdentifier)" = com.github.frutality.Calendae
+
+          # macdeployqt must have rewritten every load path to @rpath /
+          # @executable_path -- an absolute build-machine path means the
+          # bundle is not self-contained.
+          machos=$(find "$APP/Contents" -type f -exec sh -c \
+            'file "$1" | grep -q "Mach-O" && echo "$1"' _ {} \;)
+          if printf '%s\n' "$machos" | xargs -I{} otool -L {} \
+               | grep -E '/Users/|/opt/homebrew/|/Qt/[0-9]'; then
+            echo "::error::absolute library paths left in the bundle"; exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          # loads (answers before QApplication)
+          "$BIN" --version
+
+          # and survives a real GUI startup (no refresh token -> SignedOut,
+          # no OAuth dialog)
+          "$BIN" &
+          pid=$!
+          sleep 8
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "still running after 8s"; kill "$pid"; wait "$pid" 2>/dev/null || true
+          else
+            echo "::error::exited during startup"; wait "$pid"
+          fi
+
           hdiutil detach /Volumes/calendae-dmg
 
       - uses: actions/upload-artifact@v4
