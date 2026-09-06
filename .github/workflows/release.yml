@@ -226,13 +226,15 @@ jobs:
 
       - name: Smoke test
         run: |
-          $exe = Get-ChildItem -Recurse -Filter calendae.exe -Path dist | Select-Object -First 1
+          Expand-Archive -Path (Get-ChildItem dist\*.zip | Select-Object -First 1).FullName -DestinationPath dist\smoke
+          $exe = Get-ChildItem -Recurse -Filter calendae.exe -Path dist\smoke | Select-Object -First 1
           & $exe.FullName --version
+          Remove-Item -Recurse -Force dist\smoke
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: dist/*
+          path: dist/*.zip
           if-no-files-found: error
 
   publish:

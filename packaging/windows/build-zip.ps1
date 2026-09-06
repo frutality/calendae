@@ -50,7 +50,12 @@ Write-Host ">> build"
 cmake --build $BuildDir --parallel
 if ($LASTEXITCODE -ne 0) { throw "cmake build failed" }
 
-$StageDir = Join-Path $OutDir "calendae-$Version-windows-x64"
+# Stage under the build dir, never under $OutDir -- $OutDir must end up
+# holding only the final .zip, or the release-publish step (which flattens
+# every file it finds in each artifact) scatters the loose DLLs into the
+# GitHub release.
+$StageName = "calendae-$Version-windows-x64"
+$StageDir = Join-Path $BuildDir $StageName
 if (Test-Path $StageDir) { Remove-Item -Recurse -Force $StageDir }
 New-Item -ItemType Directory -Force -Path $StageDir | Out-Null
 
@@ -65,10 +70,12 @@ Write-Host ">> windeployqt"
 if ($LASTEXITCODE -ne 0) { throw "windeployqt failed" }
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-$ZipPath = Join-Path $OutDir "calendae-$Version-windows-x64.zip"
+$ZipPath = Join-Path $OutDir "$StageName.zip"
 if (Test-Path $ZipPath) { Remove-Item -Force $ZipPath }
 
 Write-Host ">> zip"
-Compress-Archive -Path (Join-Path $StageDir "*") -DestinationPath $ZipPath
+# Archive the folder itself (not its contents) so the zip has a single
+# top-level calendae-<version>-windows-x64\ dir, like the Linux tarball.
+Compress-Archive -Path $StageDir -DestinationPath $ZipPath
 
 Write-Host ">> $ZipPath"
