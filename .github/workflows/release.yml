@@ -229,7 +229,6 @@ jobs:
           Expand-Archive -Path (Get-ChildItem dist\*.zip | Select-Object -First 1).FullName -DestinationPath dist\smoke
           $exe = Get-ChildItem -Recurse -Filter calendae.exe -Path dist\smoke | Select-Object -First 1
           & $exe.FullName --version
-          Remove-Item -Recurse -Force dist\smoke
 
       - uses: actions/upload-artifact@v4
         with:
