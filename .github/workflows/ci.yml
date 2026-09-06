@@ -1,0 +1,54 @@
+name: CI
+
+# Every push to master and every PR: the standard build + the unit tests +
+# the .desktop/metainfo validation. The release pipeline (release.yml) only
+# fires on tags, so without this nothing checks ordinary commits.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          # desktop-file-utils + appstream make the metadata_lint CTest run
+          # for real instead of skipping (code 77). The xcb/xkb libs are the
+          # runtime deps of Qt's platform plugin -- the tests run headless
+          # under xvfb.
+          sudo apt-get install --no-install-recommends -y \
+            desktop-file-utils appstream libsecret-1-dev xvfb \
+            libgl1 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xkb1
+
+      - name: Cache Qt
+        id: qtcache
+        uses: actions/cache@v4
+        with:
+          path: ~/Qt/6.8.3
+          key: qt-ci-linux-6.8.3
+
+      - name: Install Qt (on cache miss)
+        if: steps.qtcache.outputs.cache-hit != 'true'
+        run: |
+          pip install aqtinstall==3.3.0
+          aqt install-qt linux desktop 6.8.3 linux_gcc_64 -O ~/Qt
+
+      - name: Build + test
+        run: QT_PREFIX="$HOME/Qt/6.8.3/gcc_64" xvfb-run -a scripts/build-standard.sh

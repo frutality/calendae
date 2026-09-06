@@ -49,3 +49,6 @@ While the version is `0.x`, anything may change on a minor bump.
   the tag) and `resources/icons/calendae.icns` are bundled by CMake. Own
   `release.yml` job on `macos-14`. Not notarized -- Gatekeeper still
   quarantines a downloaded copy.
+- `.github/workflows/ci.yml`: standard build + `ctest` + `.desktop`/metainfo
+  validation on every push to master and every PR (the release workflow only
+  runs on tags).
