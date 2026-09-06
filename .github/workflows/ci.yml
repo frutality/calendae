@@ -27,15 +27,19 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
+          # libgl1-mesa-dev + libxkbcommon-dev: find_package(Qt6 COMPONENTS
+          # Widgets) pulls Qt6GuiConfig.cmake, which needs the GL/xkbcommon
+          # *headers* at configure time even though nothing renders here.
           # desktop-file-utils + appstream make the metadata_lint CTest run
-          # for real instead of skipping (code 77). The xcb/xkb libs are the
-          # runtime deps of Qt's platform plugin -- the tests run headless
-          # under xvfb.
+          # for real instead of skipping (code 77). The remaining xcb libs
+          # are the runtime deps of Qt's platform plugin -- the tests run
+          # headless under xvfb.
           sudo apt-get install --no-install-recommends -y \
             desktop-file-utils appstream libsecret-1-dev xvfb \
-            libgl1 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 \
-            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
-            libxcb-render-util0 libxcb-shape0 libxcb-xkb1
+            libgl1-mesa-dev libglu1-mesa-dev libxkbcommon-dev \
+            libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+            libxcb-xkb1
 
       - name: Cache Qt
         id: qtcache
