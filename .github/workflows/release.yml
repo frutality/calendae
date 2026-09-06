@@ -216,7 +216,7 @@ jobs:
         if: steps.qtcache.outputs.cache-hit != 'true'
         run: |
           pip install aqtinstall==3.3.0
-          aqt install-qt windows desktop ${{ env.QT_VERSION }} win64_msvc2022_64 -O C:\Qt -m qttools
+          aqt install-qt windows desktop ${{ env.QT_VERSION }} win64_msvc2022_64 -O C:\Qt
 
       - name: Build + package
         run: >-

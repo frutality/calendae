@@ -206,7 +206,7 @@ no uninstaller, no registry writes).
 
 ```powershell
 pip install aqtinstall==3.3.0
-aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -O C:\Qt -m qttools
+aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -O C:\Qt
 
 packaging\windows\build-zip.ps1 -Version <version> -QtDir C:\Qt\6.8.3\msvc2022_64
 ```
