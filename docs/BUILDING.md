@@ -219,10 +219,38 @@ which also copies the MSVC redistributable DLLs (`vcruntime140.dll` etc.)
 next to `calendae.exe`, so the zip runs on a clean Windows install without
 the user separately installing the Visual C++ Redistributable.
 
-Not code-signed: Windows SmartScreen will show an "unknown publisher"
-warning on first run. A real code-signing certificate costs money and
-identity verification that's out of scope for this project; users have to
-click through it (or `Unblock-File` the zip's contents).
+Not code-signed. Windows SmartScreen *may* show an "unknown publisher"
+warning on the first run of a copy downloaded through a browser (it depends
+on the file's reputation and Mark-of-the-Web; a locally-built or manually
+copied binary usually won't trip it). A real code-signing certificate costs
+money and identity verification that's out of scope for this project; if the
+warning appears, "More info" -> "Run anyway", or `Unblock-File` the zip's
+contents.
+
+### macOS
+
+Same full dynamically-linked Qt as `build-standard.sh` (no lean variant).
+The Qt macOS package is universal, so the build targets `arm64;x86_64` from
+one machine and the resulting `.app` runs natively on both. Deployment is a
+`.dmg` containing the app plus an `/Applications` symlink for drag-install.
+
+```sh
+pip install aqtinstall==3.3.0
+aqt install-qt mac desktop 6.8.3 clang_64 -O ~/Qt
+
+packaging/macos/build-dmg.sh <version> ~/Qt/6.8.3/macos dist
+```
+
+`build-dmg.sh` runs `macdeployqt` to fold the Qt frameworks into the
+bundle, then **ad-hoc** codesigns it (`codesign --sign -`). Ad-hoc signing
+is not optional: Apple Silicon refuses to launch an unsigned binary at all.
+It is *not* a Developer ID and there is no notarization, so a `.dmg`
+downloaded through a browser is still quarantined -- Gatekeeper shows
+"calendae can't be opened because Apple cannot check it for malicious
+software". Users work around it with right-click -> Open (then confirm), or
+`xattr -dr com.apple.quarantine /Applications/calendae.app`. A Developer ID
++ notarization would remove this, but it needs a paid Apple Developer
+account ($99/yr).
 
 ### In CLion
 

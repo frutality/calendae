@@ -42,3 +42,10 @@ While the version is `0.x`, anything may change on a minor bump.
   embeds a version resource and `resources/icons/calendae.ico` as the
   `.exe` icon. Wired into `release.yml` as its own job (`windows-2022`
   runner) feeding the same draft release.
+- macOS packaging: `packaging/macos/build-dmg.sh` builds a universal
+  (arm64 + x86_64) `.app` against Qt from `aqtinstall`, folds Qt in with
+  `macdeployqt`, ad-hoc codesigns it, and wraps it in a `.dmg`. A generated
+  `resources/Info.plist.in` (bundle id = `CALENDAE_APP_ID`, versions from
+  the tag) and `resources/icons/calendae.icns` are bundled by CMake. Own
+  `release.yml` job on `macos-14`. Not notarized -- Gatekeeper still
+  quarantines a downloaded copy.

@@ -6,7 +6,8 @@ name: Release
 #
 # Phases are added job by job (see the release-pipeline plan). Implemented so
 # far: linux (AppImage + tarball + self-contained deb), flatpak (single-file
-# bundle built against the KDE runtime), windows (portable zip).
+# bundle built against the KDE runtime), windows (portable zip), macos
+# (universal .dmg, ad-hoc signed).
 
 on:
   push:
@@ -236,8 +237,58 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
+  macos:
+    needs: prepare
+    # Apple Silicon runner. The Qt macOS package is universal, so the build
+    # is arm64+x86_64 from this one runner -- no separate Intel job.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache Qt
+        id: qtcache
+        uses: actions/cache@v4
+        with:
+          path: ~/Qt/${{ env.QT_VERSION }}
+          key: qt-macos-${{ env.QT_VERSION }}
+
+      - name: Install Qt (on cache miss)
+        if: steps.qtcache.outputs.cache-hit != 'true'
+        run: |
+          pip install aqtinstall==3.3.0
+          aqt install-qt mac desktop ${{ env.QT_VERSION }} clang_64 -O ~/Qt
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Build + package
+        run: >-
+          packaging/macos/build-dmg.sh
+          "${{ needs.prepare.outputs.version }}"
+          "$HOME/Qt/${{ env.QT_VERSION }}/macos"
+          dist
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          hdiutil attach dist/calendae-*-macos.dmg -nobrowse -mountpoint /Volumes/calendae-dmg
+          /Volumes/calendae-dmg/calendae.app/Contents/MacOS/calendae --version
+          hdiutil detach /Volumes/calendae-dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.dmg
+          if-no-files-found: error
+
   publish:
-    needs: [prepare, linux, flatpak, windows]
+    needs: [prepare, linux, flatpak, windows, macos]
     if: needs.prepare.outputs.is_tag == 'true'
     runs-on: ubuntu-24.04
     permissions:

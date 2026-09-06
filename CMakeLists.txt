@@ -272,6 +272,22 @@ if(WIN32)
     target_sources(calendae PRIVATE "${_calendae_rc}")
 endif()
 
+# macOS: a generated Info.plist (bundle id = CALENDAE_APP_ID, versions from
+# the git tag, LSMinimumSystemVersion) and the .icns bundled into
+# Contents/Resources. macdeployqt + codesign happen later in
+# packaging/macos/build-dmg.sh.
+if(APPLE)
+    set(_calendae_icns "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/calendae.icns")
+    set(_calendae_plist "${CMAKE_CURRENT_BINARY_DIR}/Info.plist")
+    configure_file(resources/Info.plist.in "${_calendae_plist}" @ONLY)
+    target_sources(calendae PRIVATE "${_calendae_icns}")
+    set_source_files_properties("${_calendae_icns}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION Resources)
+    set_target_properties(calendae PROPERTIES
+        MACOSX_BUNDLE_INFO_PLIST "${_calendae_plist}"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "${CALENDAE_APP_ID}")
+endif()
+
 target_link_libraries(calendae
     PRIVATE
         tgc_auth
