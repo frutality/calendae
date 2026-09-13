@@ -1,6 +1,6 @@
 # Calendae
 
-A lightweight Qt6 desktop client for a single Google Calendar account: sign in, view a month grid, and create/edit/delete events.
+A lightweight Qt6 desktop client for a single Google Calendar account: sign in, view a month/week/day grid, and create/edit/delete events.
 
 Why it exists: I was trying to decrease RAM usage on my somewhat old PC, but every calendar app I tried was using ~150-300 MB and had so many functions I never used. So I figured: why not build it myself?
 
