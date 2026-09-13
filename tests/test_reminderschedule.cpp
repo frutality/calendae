@@ -15,6 +15,7 @@ private slots:
     void multipleOverridesOnOneEvent();
     void useDefaultWithoutOverridesProducesNothing();
     void keyForIsStableAndDistinct();
+    void eventWithInvalidStartTimeIsSkipped();
 };
 
 namespace {
@@ -153,6 +154,23 @@ void TestReminderSchedule::keyForIsStableAndDistinct()
             != ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e"), 20, fireAt));
     QVERIFY(ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e1"), 10, fireAt)
             != ReminderSchedule::keyFor(QStringLiteral("c"), QStringLiteral("e"), 110, fireAt));
+}
+
+void TestReminderSchedule::eventWithInvalidStartTimeIsSkipped()
+{
+    const QDateTime now(QDate(2026, 8, 28), QTime(8, 0), QTimeZone::LocalTime);
+
+    // A timed event whose startDateTime was never set (e.g. a malformed
+    // fetch result) has no usable clock time to anchor a reminder to.
+    Event event;
+    event.id = QStringLiteral("e1");
+    event.calendarId = QStringLiteral("cal1");
+    event.allDay = false;
+    event.remindersUseDefault = false;
+    event.reminderOverrides = {{QStringLiteral("popup"), 10}};
+    QVERIFY(!event.startDateTime.isValid());
+
+    QVERIFY(ReminderSchedule::plan({event}, now, now.addSecs(36 * 3600)).isEmpty());
 }
 
 QTEST_APPLESS_MAIN(TestReminderSchedule)

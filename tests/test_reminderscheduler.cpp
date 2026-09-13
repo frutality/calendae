@@ -54,6 +54,7 @@ private slots:
     void clearResetsEverything();
     void fetchFailureIsSilent();
     void reminderFiresAtScheduledTime();
+    void refreshVisibleFromServerIsANoOp();
 };
 
 void TestReminderScheduler::setCalendarsWhileSignedOutFetchesNothing()
@@ -284,6 +285,23 @@ void TestReminderScheduler::reminderFiresAtScheduledTime()
     const DueReminder reminder = dueSpy.first().first().value<DueReminder>();
     QCOMPARE(reminder.calendarId, QStringLiteral("a"));
     QCOMPARE(reminder.eventId, QStringLiteral("e1"));
+}
+
+void TestReminderScheduler::refreshVisibleFromServerIsANoOp()
+{
+    AuthManager auth;
+    auth.setSignedInForTesting(QStringLiteral("token"));
+    RecordingApi api(&auth);
+    ReminderScheduler scheduler(&auth, &api);
+    scheduler.setCalendars({makeCalendar(QStringLiteral("a"), true)});
+    const int callsBefore = api.calls.size();
+
+    // ReminderScheduler doesn't override EventsController's default no-op
+    // (unlike the view controllers, it runs its own independent rolling
+    // fetch): MainWindow's periodic poll must not double up its fetches.
+    scheduler.refreshVisibleFromServer();
+
+    QCOMPARE(api.calls.size(), callsBefore);
 }
 
 QTEST_GUILESS_MAIN(TestReminderScheduler)

@@ -2,6 +2,10 @@
 #include "calendar/event.h"
 #include "calendar/eventcachestore.h"
 
+#include <QCborArray>
+#include <QCborMap>
+#include <QCborValue>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
@@ -70,6 +74,17 @@ private slots:
     void pruneDropsOldAndExcessBuckets();
     void roundTripsCalendarList();
     void accountKeyNamespacesTheCache();
+
+    void disabledStoreIsANoOpForEveryOperation();
+    void bucketWithWrongSchemaVersionIsIgnored();
+    void loadCalendarsBeforeAnyStoreReturnsNullopt();
+    void loadCalendarsIgnoresCorruptFile();
+    void loadCalendarsWithWrongSchemaVersionIsIgnored();
+    void skipsWriteWhenCalendarListUnchanged();
+    void removeCalendarBeforeAnyStoreIsANoOp();
+    void pruneBeforeAnyStoreIsANoOp();
+    void storeBucketFailsGracefullyWhenAccountDirIsBlockedByAFile();
+    void storeBucketFailsGracefullyWhenCommitCannotReplaceADirectory();
 };
 
 void TestEventCacheStore::roundTripsBucket()
@@ -240,6 +255,166 @@ void TestEventCacheStore::roundTripsCalendarList()
     QVERIFY(loaded->at(0).primary);
     QCOMPARE(loaded->at(1).id, QStringLiteral("b@example.com"));
     QVERIFY(!loaded->at(1).selected);
+}
+
+void TestEventCacheStore::disabledStoreIsANoOpForEveryOperation()
+{
+    QTemporaryDir tmp;
+    EventCacheStore store(tmp.path());
+    QVERIFY(!store.enabled());
+
+    // Every operation must silently no-op (no crash, nothing written) while
+    // no account key is set — mirrors storeBucket/loadBucket already
+    // covered by isANoOpWithoutAccountKey().
+    QVERIFY(!store.loadCalendars().has_value());
+    store.storeCalendars({Calendar()});
+    store.removeCalendar(QStringLiteral("a"));
+    store.removeAll();
+    store.prune(30, 5);
+
+    QVERIFY(QDir(tmp.path()).isEmpty());
+}
+
+void TestEventCacheStore::bucketWithWrongSchemaVersionIsIgnored()
+{
+    QTemporaryDir tmp;
+    EventCacheStore store(tmp.path());
+    store.setAccountKey(QStringLiteral("acct"));
+
+    // Reproduce the on-disk layout documented in eventcachestore.h directly,
+    // with an incompatible schema version.
+    const QString hash = QString::fromLatin1(
+        QCryptographicHash::hash(QByteArrayLiteral("cal"), QCryptographicHash::Sha1).toHex());
+    const QString accountDir = tmp.path() + QStringLiteral("/acct");
+    QVERIFY(QDir().mkpath(accountDir));
+    const QString path = accountDir + QStringLiteral("/2026-08__%1.cbor").arg(hash);
+
+    const QCborMap map{{QLatin1String("v"), 999}, {QLatin1String("events"), QCborArray()}};
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QCborValue(map).toCbor());
+    file.close();
+
+    QVERIFY(!store.loadBucket(kAug, QStringLiteral("cal")).has_value());
+}
+
+void TestEventCacheStore::loadCalendarsBeforeAnyStoreReturnsNullopt()
+{
+    QTemporaryDir tmp;
+    EventCacheStore store(tmp.path());
+    store.setAccountKey(QStringLiteral("acct"));
+
+    QVERIFY(!store.loadCalendars().has_value());
+}
+
+void TestEventCacheStore::loadCalendarsIgnoresCorruptFile()
+{
+    QTemporaryDir tmp;
+    EventCacheStore store(tmp.path());
+    store.setAccountKey(QStringLiteral("acct"));
+    const QString accountDir = tmp.path() + QStringLiteral("/acct");
+    QVERIFY(QDir().mkpath(accountDir));
+    QFile file(accountDir + QStringLiteral("/calendars.cbor"));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("not cbor at all");
+    file.close();
+
+    QVERIFY(!store.loadCalendars().has_value());
+}
+
+void TestEventCacheStore::loadCalendarsWithWrongSchemaVersionIsIgnored()
+{
+    QTemporaryDir tmp;
+    EventCacheStore store(tmp.path());
+    store.setAccountKey(QStringLiteral("acct"));
+    const QString accountDir = tmp.path() + QStringLiteral("/acct");
+    QVERIFY(QDir().mkpath(accountDir));
+
+    const QCborMap map{{QLatin1String("v"), 999}, {QLatin1String("calendars"), QCborArray()}};
+    QFile file(accountDir + QStringLiteral("/calendars.cbor"));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QCborValue(map).toCbor());
+    file.close();
+
+    QVERIFY(!store.loadCalendars().has_value());
+}
+
+void TestEventCacheStore::skipsWriteWhenCalendarListUnchanged()
+{
+    QTemporaryDir tmp;
+    EventCacheStore store(tmp.path());
+    store.setAccountKey(QStringLiteral("acct"));
+    Calendar a;
+    a.id = QStringLiteral("a");
+    a.summary = QStringLiteral("Work");
+    store.storeCalendars({a});
+
+    const QString path = tmp.path() + QStringLiteral("/acct/calendars.cbor");
+    const QDateTime marker = QDateTime::currentDateTimeUtc().addSecs(-3600);
+    backdate(path, marker);
+
+    store.storeCalendars({a}); // identical -> must not rewrite
+    QCOMPARE(QFileInfo(path).lastModified().toUTC().toSecsSinceEpoch(), marker.toSecsSinceEpoch());
+
+    Calendar b;
+    b.id = QStringLiteral("b");
+    b.summary = QStringLiteral("Home");
+    store.storeCalendars({a, b}); // changed -> rewrites
+    QVERIFY(QFileInfo(path).lastModified().toUTC().toSecsSinceEpoch() > marker.toSecsSinceEpoch());
+}
+
+void TestEventCacheStore::removeCalendarBeforeAnyStoreIsANoOp()
+{
+    QTemporaryDir tmp;
+    EventCacheStore store(tmp.path());
+    store.setAccountKey(QStringLiteral("acct")); // enabled, but nothing was ever stored
+
+    store.removeCalendar(QStringLiteral("a")); // must not crash
+}
+
+void TestEventCacheStore::pruneBeforeAnyStoreIsANoOp()
+{
+    QTemporaryDir tmp;
+    EventCacheStore store(tmp.path());
+    store.setAccountKey(QStringLiteral("acct"));
+
+    store.prune(30, 5); // must not crash
+}
+
+void TestEventCacheStore::storeBucketFailsGracefullyWhenAccountDirIsBlockedByAFile()
+{
+    QTemporaryDir tmp;
+    EventCacheStore store(tmp.path());
+    store.setAccountKey(QStringLiteral("acct"));
+
+    // A plain file sitting exactly where the account directory needs to be
+    // created makes QDir::mkpath() fail.
+    QFile blocker(tmp.path() + QStringLiteral("/acct"));
+    QVERIFY(blocker.open(QIODevice::WriteOnly));
+    blocker.close();
+
+    store.storeBucket(kAug, QStringLiteral("cal"), {allDayEvent(QStringLiteral("e1"), QStringLiteral("cal"))});
+
+    QVERIFY(!store.loadBucket(kAug, QStringLiteral("cal")).has_value());
+}
+
+void TestEventCacheStore::storeBucketFailsGracefullyWhenCommitCannotReplaceADirectory()
+{
+    QTemporaryDir tmp;
+    EventCacheStore store(tmp.path());
+    store.setAccountKey(QStringLiteral("acct"));
+
+    // The account directory itself is fine, but a directory sits exactly at
+    // the bucket file's own path, so QSaveFile::commit()'s rename-into-place
+    // fails.
+    const QString hash = QString::fromLatin1(
+        QCryptographicHash::hash(QByteArrayLiteral("cal"), QCryptographicHash::Sha1).toHex());
+    const QString accountDir = tmp.path() + QStringLiteral("/acct");
+    QVERIFY(QDir().mkpath(accountDir + QStringLiteral("/2026-08__%1.cbor").arg(hash)));
+
+    store.storeBucket(kAug, QStringLiteral("cal"), {allDayEvent(QStringLiteral("e1"), QStringLiteral("cal"))});
+
+    QVERIFY(!store.loadBucket(kAug, QStringLiteral("cal")).has_value());
 }
 
 void TestEventCacheStore::accountKeyNamespacesTheCache()
