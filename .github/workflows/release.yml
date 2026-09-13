@@ -35,7 +35,7 @@ jobs:
       prerelease: ${{ steps.v.outputs.prerelease }}
       is_tag: ${{ steps.v.outputs.is_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -59,7 +59,7 @@ jobs:
           fi
           packaging/changelog-extract.sh "$version" | tee RELEASE_NOTES.md
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-notes
           path: RELEASE_NOTES.md
@@ -71,7 +71,7 @@ jobs:
     # `container: ubuntu:22.04` on a newer runner.
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -92,7 +92,7 @@ jobs:
 
       - name: Cache lean Qt (${{ env.QT_VERSION }}, shared)
         id: qtcache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/Qt/${{ env.QT_VERSION }}-lean-shared
           key: qt-lean-shared-ubuntu2204-${{ env.QT_VERSION }}-${{ hashFiles('scripts/build-qt-lean.sh') }}
@@ -144,7 +144,7 @@ jobs:
           dpkg-deb -x ./dist/calendae_*.deb /tmp/debroot
           xvfb-run -a /tmp/debroot/usr/bin/calendae --version
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: linux
           path: dist/*
@@ -154,12 +154,12 @@ jobs:
     needs: prepare
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Cache flatpak runtime + SDK
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.local/share/flatpak
           key: flatpak-org.kde.Platform-6.9
@@ -186,7 +186,7 @@ jobs:
           flatpak install --user -y --bundle dist/calendae-*.flatpak
           xvfb-run -a flatpak run com.github.frutality.Calendae --version
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: flatpak
           path: dist/*
@@ -196,19 +196,19 @@ jobs:
     needs: prepare
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - uses: ilammy/msvc-dev-cmd@v1
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
       - name: Cache Qt
         id: qtcache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: C:\Qt\${{ env.QT_VERSION }}
           key: qt-windows-${{ env.QT_VERSION }}
@@ -231,7 +231,7 @@ jobs:
           $exe = Get-ChildItem -Recurse -Filter calendae.exe -Path dist\smoke | Select-Object -First 1
           & $exe.FullName --version
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: windows
           path: dist/*.zip
@@ -243,17 +243,17 @@ jobs:
     # is arm64+x86_64 from this one runner -- no separate Intel job.
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
       - name: Cache Qt
         id: qtcache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/Qt/${{ env.QT_VERSION }}
           key: qt-macos-${{ env.QT_VERSION }}
@@ -317,7 +317,7 @@ jobs:
 
           hdiutil detach /Volumes/calendae-dmg
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: macos
           path: dist/*.dmg
@@ -330,7 +330,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: artifacts
 
@@ -341,7 +341,7 @@ jobs:
           find artifacts -type f ! -name RELEASE_NOTES.md -exec cp -t dist {} +
           ( cd dist && sha256sum * | tee SHA256SUMS )
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           draft: true
           prerelease: ${{ needs.prepare.outputs.prerelease }}

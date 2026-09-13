@@ -17,11 +17,11 @@ jobs:
   build-test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -44,7 +44,7 @@ jobs:
 
       - name: Cache Qt
         id: qtcache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/Qt/6.8.3
           key: qt-ci-linux-6.8.3
@@ -61,11 +61,11 @@ jobs:
   coverage:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -81,7 +81,7 @@ jobs:
 
       - name: Cache Qt
         id: qtcache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/Qt/6.8.3
           key: qt-ci-linux-6.8.3
@@ -95,7 +95,7 @@ jobs:
       - name: Measure coverage
         run: QT_PREFIX="$HOME/Qt/6.8.3/gcc_64" xvfb-run -a scripts/measure-coverage.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: coverage-report
           path: coverage/
