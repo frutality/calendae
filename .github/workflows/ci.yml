@@ -1,7 +1,8 @@
 name: CI
 
 # Every push to master and every PR: the standard build + the unit tests +
-# the .desktop/metainfo validation. The release pipeline (release.yml) only
+# the .desktop/metainfo validation, plus a separate coverage job (see
+# scripts/measure-coverage.sh). The release pipeline (release.yml) only
 # fires on tags, so without this nothing checks ordinary commits.
 
 on:
@@ -56,3 +57,46 @@ jobs:
 
       - name: Build + test
         run: QT_PREFIX="$HOME/Qt/6.8.3/gcc_64" xvfb-run -a scripts/build-standard.sh
+
+  coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            gcovr libsecret-1-dev xvfb \
+            libgl1-mesa-dev libglu1-mesa-dev libxkbcommon-dev \
+            libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+            libxcb-xkb1
+
+      - name: Cache Qt
+        id: qtcache
+        uses: actions/cache@v4
+        with:
+          path: ~/Qt/6.8.3
+          key: qt-ci-linux-6.8.3
+
+      - name: Install Qt (on cache miss)
+        if: steps.qtcache.outputs.cache-hit != 'true'
+        run: |
+          pip install aqtinstall==3.3.0
+          aqt install-qt linux desktop 6.8.3 linux_gcc_64 -O ~/Qt
+
+      - name: Measure coverage
+        run: QT_PREFIX="$HOME/Qt/6.8.3/gcc_64" xvfb-run -a scripts/measure-coverage.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 30

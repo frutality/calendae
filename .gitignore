@@ -101,6 +101,9 @@ CMakeUserPresets.json
 
 # Local profiling / memory-measurement scratch (not tracked)
 /performance/
+
+# scripts/measure-coverage.sh HTML report (not tracked)
+/coverage/
 heaptrack.*.zst
 perf.data*
 callgrind.out.*

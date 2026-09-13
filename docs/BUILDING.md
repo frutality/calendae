@@ -332,6 +332,27 @@ Reading the output:
 
 ---
 
+## Measuring test coverage
+
+```sh
+scripts/measure-coverage.sh          # -> coverage/index.html
+scripts/measure-coverage.sh --open   # also open it in a browser
+```
+
+Builds a separate `build-coverage/` with `-DCALENDAE_ENABLE_COVERAGE=ON`
+(GCC/Clang `--coverage`), runs `ctest`, and renders an HTML report with
+[gcovr](https://gcovr.com/) (`pip install gcovr` or `apt install gcovr`),
+scoped to `src/auth/` + `src/calendar/` (what the tests actually link
+against). `--clean` wipes `build-coverage/` if it was previously configured
+without the coverage flag.
+
+CI runs this on every push/PR (`coverage` job in `.github/workflows/ci.yml`):
+the percentage shows up in that job's **Summary** tab, and the full HTML
+report is downloadable from the run's **Artifacts** panel as
+`coverage-report`.
+
+---
+
 ## Environment variable reference
 
 | Var | Used by | Default |
@@ -341,5 +362,6 @@ Reading the output:
 | `QT_LEAN_PREFIX` | build-qt-lean, build-lean | `~/Qt/$QT_VERSION-lean-static` |
 | `QT_SRC_DIR` | build-qt-lean | `~/src/qtbase` |
 | `QT_BUILD_DIR` | build-qt-lean | `$QT_SRC_DIR-build-lean` |
-| `BUILD_DIR` | build-standard, build-lean | `build/` resp. `build-lean/` |
+| `BUILD_DIR` | build-standard, build-lean, measure-coverage | `build/` resp. `build-lean/` / `build-coverage/` |
+| `OUT_DIR` | measure-coverage | `coverage/` |
 | `JOBS` | all | `nproc` |

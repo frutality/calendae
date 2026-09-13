@@ -108,6 +108,22 @@ set(BUILD_SHARED_LIBS ${_tgc_saved_bsl})
 # bump.
 set_property(TARGET qt6keychain PROPERTY QT_EXCLUDE_FROM_TRANSLATION ON)
 
+# Code coverage (gcov): instruments every target from here on --
+# tgc_auth, tgc_calendar, calendae, and the test binaries below -- with
+# --coverage. Deliberately placed after qtkeychain is already built above so
+# that FetchContent'd third-party source stays uninstrumented. GCC/Clang
+# only; pair with -DCMAKE_BUILD_TYPE=Debug (no optimization, so gcov's
+# line/branch hits map cleanly back to source) and TINY_GCAL_BUILD_TESTS=ON.
+# See scripts/measure-coverage.sh, which drives the whole flow.
+option(CALENDAE_ENABLE_COVERAGE "Build with --coverage (gcov) instrumentation for coverage measurement" OFF)
+if(CALENDAE_ENABLE_COVERAGE)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR "CALENDAE_ENABLE_COVERAGE needs GCC or Clang, got ${CMAKE_CXX_COMPILER_ID}")
+    endif()
+    add_compile_options(-O0 -g --coverage)
+    add_link_options(--coverage)
+endif()
+
 # The OAuth/auth subsystem lives in its own static library so unit tests can
 # link against it without recompiling it or duplicating its source list.
 add_library(tgc_auth STATIC
