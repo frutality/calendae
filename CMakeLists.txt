@@ -135,6 +135,8 @@ add_library(tgc_auth STATIC
     src/auth/credentialsprovider.cpp
     src/auth/keychainjob.h
     src/auth/keychainjob.cpp
+    src/auth/keychainbackend.h
+    src/auth/keychainbackend.cpp
     src/auth/oauthcredentialsdialog.h
     src/auth/oauthcredentialsdialog.cpp
     src/auth/oauthcredentialsdialog.ui

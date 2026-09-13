@@ -11,18 +11,17 @@
 
 // Shared setup for test_authmanager and test_googlecalendarapi.
 //
-// IMPORTANT: nothing here may touch QtKeychain, even indirectly (e.g. by
-// calling AuthManager::restoreSession()/signIn() through to a success path
-// that saves/reads/deletes a token). CredentialsProvider::keychainService
-// ("calendae") is the same service name the real app uses, and on a machine
-// with a real OS keyring (Secret Service/libsecret, KWallet), QtKeychain's
-// setInsecureFallback(true) is NOT consulted for a plain "not found" or a
-// successful read/write/delete — those go straight to the real backend. A
-// previous version of these tests seeded/cleared a QSettings-based
-// "fallback store" believing it was sandboxed; it wasn't, and running them
-// deleted a real developer's real stored Google refresh token. Use
-// AuthManager::setSignedInForTesting() instead of restoreSession()/signIn()
-// wherever a SignedIn AuthManager is needed.
+// Nothing here touches QtKeychain — that's now handled by injecting a
+// FakeKeychainBackend (see fakekeychainbackend.h) into AuthManager/
+// CredentialsProvider instead. Never let a test construct either with the
+// keychain constructor argument defaulted to nullptr: that constructs a
+// RealKeychainBackend, which talks to the actual OS credential store under
+// the exact service name ("calendae") the real installed app uses. An
+// earlier version of these tests tried to sandbox that via a QSettings-based
+// "insecure fallback" file instead, believing it was isolated; it wasn't
+// (a real keyring backend, when reachable, is used directly regardless of
+// setInsecureFallback()), and running them once deleted a developer's real
+// stored Google refresh token.
 namespace AuthTestHelpers {
 
 // Makes CredentialsProvider::resolve() succeed from the config file alone,
@@ -57,6 +56,14 @@ inline QByteArray tokenResponseJson(const QString &accessToken, int expiresInSec
     };
     if (!refreshToken.isEmpty())
         obj.insert(QStringLiteral("refresh_token"), refreshToken);
+    return QJsonDocument(obj).toJson(QJsonDocument::Compact);
+}
+
+inline QByteArray tokenErrorJson(const QString &error, const QString &description = QString())
+{
+    QJsonObject obj{{QStringLiteral("error"), error}};
+    if (!description.isEmpty())
+        obj.insert(QStringLiteral("error_description"), description);
     return QJsonDocument(obj).toJson(QJsonDocument::Compact);
 }
 

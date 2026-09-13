@@ -2,6 +2,7 @@
 #define AUTHMANAGER_H
 
 #include "credentialsprovider.h"
+#include "keychainbackend.h"
 #include "tokenresponse.h"
 
 #include <keychain.h>
@@ -52,11 +53,12 @@ public:
     };
     Q_ENUM(SignOutReason)
 
-    // `network`, when non-null, is used instead of a freshly constructed
-    // QNetworkAccessManager — exists solely so unit tests can substitute a
-    // fake that never touches the real network. Production code always
-    // passes nullptr.
-    explicit AuthManager(QObject *parent = nullptr, QNetworkAccessManager *network = nullptr);
+    // `network`/`keychain`, when non-null, are used instead of a freshly
+    // constructed real one — exists solely so unit tests can substitute
+    // fakes that never touch the real network or OS credential store.
+    // Production code always passes nullptr for both.
+    explicit AuthManager(QObject *parent = nullptr, QNetworkAccessManager *network = nullptr,
+                         KeychainBackend *keychain = nullptr);
 
     AuthState state() const { return m_state; }
 
@@ -67,12 +69,9 @@ public:
     QString accessToken() const { return m_accessToken; }
 
     // Exposed for unit testing: jumps straight to SignedIn with the given
-    // token, touching neither the keychain nor the network — the only way
-    // production code reaches SignedIn is restoreSession()/signIn(), both of
-    // which do real keychain I/O against the OS credential store and so
-    // can't be exercised in tests without risking a real stored session
-    // (see GoogleCalendarApi's tests, which need a SignedIn AuthManager to
-    // send requests at all).
+    // token, without going through restoreSession()/signIn() at all — handy
+    // for tests (e.g. GoogleCalendarApi's) that just need a SignedIn
+    // AuthManager and don't care how it got there.
     void setSignedInForTesting(const QString &accessToken)
     {
         m_accessToken = accessToken;
@@ -182,6 +181,8 @@ private:
     QNetworkReply *postForm(const QUrl &endpoint, const QUrlQuery &params);
 
     QNetworkAccessManager *m_network;
+    RealKeychainBackend m_realKeychainBackend; // used unless a test injects its own; declared before m_keychain
+    KeychainBackend *m_keychain;
     OAuthLoopbackServer *m_loopbackServer = nullptr;
 
     AuthState m_state = AuthState::SignedOut;

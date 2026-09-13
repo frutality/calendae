@@ -1,5 +1,4 @@
 #include "credentialsprovider.h"
-#include "keychainjob.h"
 #include "oauthcredentialsdialog.h"
 
 #include <keychain.h>
@@ -13,8 +12,9 @@
 const QString CredentialsProvider::keychainService = QStringLiteral("calendae");
 const QString CredentialsProvider::keychainKey = QStringLiteral("oauth_client_credentials");
 
-CredentialsProvider::CredentialsProvider(QObject *parent)
+CredentialsProvider::CredentialsProvider(QObject *parent, KeychainBackend *keychain)
     : QObject(parent)
+    , m_keychain(keychain ? keychain : &m_realKeychainBackend)
 {
 }
 
@@ -41,11 +41,9 @@ void CredentialsProvider::resolve(bool allowInteractiveFallback, QWidget *dialog
 
 void CredentialsProvider::tryKeychain(bool allowInteractiveFallback, QWidget *dialogParent)
 {
-    auto *job = makeKeychainJob<QKeychain::ReadPasswordJob>(keychainKey, this);
-    connect(job, &QKeychain::Job::finished, this, [this, allowInteractiveFallback, dialogParent](QKeychain::Job *job) {
-        auto *readJob = qobject_cast<QKeychain::ReadPasswordJob *>(job);
-        if (readJob->error() == QKeychain::NoError) {
-            const QJsonDocument doc = QJsonDocument::fromJson(readJob->textData().toUtf8());
+    m_keychain->read(keychainKey, this, [this, allowInteractiveFallback, dialogParent](QKeychain::Error error, const QString &textData) {
+        if (error == QKeychain::NoError) {
+            const QJsonDocument doc = QJsonDocument::fromJson(textData.toUtf8());
             const QJsonObject obj = doc.object();
             OAuthClientCredentials creds;
             creds.clientId = obj.value(QStringLiteral("client_id")).toString();
@@ -62,7 +60,6 @@ void CredentialsProvider::tryKeychain(bool allowInteractiveFallback, QWidget *di
             emit failed(tr("No Google OAuth client credentials are configured."));
         }
     });
-    job->start();
 }
 
 void CredentialsProvider::showDialogAndSave(QWidget *dialogParent)
@@ -84,14 +81,13 @@ void CredentialsProvider::showDialogAndSave(QWidget *dialogParent)
             {QStringLiteral("client_secret"), creds.clientSecret},
         };
 
-        // Not parented to `this`: the caller deletes this CredentialsProvider
-        // as soon as resolved() is emitted below, which would abort this
-        // async write mid-flight if it were a child of `this`. QtKeychain
-        // jobs self-delete (autoDelete()) once finished() fires, so a null
-        // parent here is intentional, not a leak.
-        auto *writeJob = makeKeychainJob<QKeychain::WritePasswordJob>(keychainKey);
-        writeJob->setTextData(QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact)));
-        writeJob->start();
+        // parent=nullptr: the caller deletes this CredentialsProvider as
+        // soon as resolved() is emitted below, which would abort this async
+        // write mid-flight if it were tied to `this`'s lifetime. The
+        // underlying job self-deletes (autoDelete()) once finished() fires,
+        // so this is intentional fire-and-forget, not a leak.
+        m_keychain->write(keychainKey, QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact)),
+                          nullptr, [](QKeychain::Error) {});
 
         emit resolved(creds);
     });

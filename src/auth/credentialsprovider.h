@@ -1,6 +1,8 @@
 #ifndef CREDENTIALSPROVIDER_H
 #define CREDENTIALSPROVIDER_H
 
+#include "keychainbackend.h"
+
 #include <QObject>
 #include <QString>
 
@@ -29,7 +31,12 @@ public:
     static const QString keychainService;
     static const QString keychainKey;
 
-    explicit CredentialsProvider(QObject *parent = nullptr);
+    // `keychain`, when non-null, is used instead of a freshly constructed
+    // real one — exists solely so unit tests can substitute a fake that
+    // never touches the real OS credential store. Production code always
+    // passes nullptr (AuthManager instead passes through its own, shared
+    // with every CredentialsProvider it creates).
+    explicit CredentialsProvider(QObject *parent = nullptr, KeychainBackend *keychain = nullptr);
 
     // Emits resolved() or failed() asynchronously (even when the config file
     // is used, to keep the calling contract uniform).
@@ -43,6 +50,9 @@ private:
     void tryConfigFile();
     void tryKeychain(bool allowInteractiveFallback, QWidget *dialogParent);
     void showDialogAndSave(QWidget *dialogParent);
+
+    RealKeychainBackend m_realKeychainBackend; // used unless a test injects its own; declared before m_keychain
+    KeychainBackend *m_keychain;
 };
 
 #endif // CREDENTIALSPROVIDER_H
