@@ -52,7 +52,11 @@ public:
     };
     Q_ENUM(SignOutReason)
 
-    explicit AuthManager(QObject *parent = nullptr);
+    // `network`, when non-null, is used instead of a freshly constructed
+    // QNetworkAccessManager — exists solely so unit tests can substitute a
+    // fake that never touches the real network. Production code always
+    // passes nullptr.
+    explicit AuthManager(QObject *parent = nullptr, QNetworkAccessManager *network = nullptr);
 
     AuthState state() const { return m_state; }
 
@@ -61,6 +65,19 @@ public:
 
     // Valid only while state() == SignedIn.
     QString accessToken() const { return m_accessToken; }
+
+    // Exposed for unit testing: jumps straight to SignedIn with the given
+    // token, touching neither the keychain nor the network — the only way
+    // production code reaches SignedIn is restoreSession()/signIn(), both of
+    // which do real keychain I/O against the OS credential store and so
+    // can't be exercised in tests without risking a real stored session
+    // (see GoogleCalendarApi's tests, which need a SignedIn AuthManager to
+    // send requests at all).
+    void setSignedInForTesting(const QString &accessToken)
+    {
+        m_accessToken = accessToken;
+        setState(AuthState::SignedIn);
+    }
 
     // The single process-wide QNetworkAccessManager. GoogleCalendarApi (and
     // everything layered on it) borrows this instead of constructing its

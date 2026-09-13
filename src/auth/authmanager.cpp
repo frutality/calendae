@@ -96,9 +96,9 @@ AuthManager::KeychainReadOutcome AuthManager::classifyKeychainReadError(QKeychai
     }
 }
 
-AuthManager::AuthManager(QObject *parent)
+AuthManager::AuthManager(QObject *parent, QNetworkAccessManager *network)
     : QObject(parent)
-    , m_network(new QNetworkAccessManager(this))
+    , m_network(network ? network : new QNetworkAccessManager(this))
 {
     m_signInTimeoutTimer.setSingleShot(true);
     connect(&m_signInTimeoutTimer, &QTimer::timeout, this, [this] {

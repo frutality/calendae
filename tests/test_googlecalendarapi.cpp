@@ -1,8 +1,11 @@
 #include "calendar/googlecalendarapi.h"
 
+#include "fakenetworkaccessmanager.h"
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSignalSpy>
 #include <QTest>
 #include <QTimeZone>
 #include <QUrlQuery>
@@ -28,6 +31,30 @@ private slots:
     void popupReminderModeEmitsExplicitOverride();
     void offReminderModeClearsPopupButKeepsPreservedOverrides();
     void classifiesTransientNetworkErrors();
+
+    // Real request-sending slots, against a fake network + a real
+    // AuthManager forced SignedIn via setSignedInForTesting() (never a real
+    // restoreSession()/signIn(), which would touch the real OS keychain).
+    void fetchCalendarListFailsWhenNotSignedIn();
+    void fetchCalendarListParsesSuccessResponse();
+    void fetchCalendarList401IsSessionExpired();
+    void fetchCalendarListTransientFailureIsFlagged();
+
+    void setCalendarSelectedSendsPatchAndSucceeds();
+    void setCalendarSelectedFailureRollsBackWithMessage();
+
+    void fetchEventsFailsWhenNotSignedIn();
+    void fetchEventsFollowsPaginationAndAccumulates();
+    void fetchEvents401IsSessionExpired();
+
+    void createEventSucceeds();
+    void createEventForbiddenIncludesApiMessage();
+
+    void updateEventSucceeds();
+    void updateEventNotFoundIncludesApiMessage();
+
+    void deleteEventSucceeds();
+    void deleteEventGoneIsTreatedAsSuccess();
 };
 
 void TestGoogleCalendarApi::buildsSelectedPatchBody()
@@ -355,5 +382,344 @@ void TestGoogleCalendarApi::classifiesTransientNetworkErrors()
     QVERIFY(!GoogleCalendarApi::isTransientNetworkError(QNetworkReply::ProtocolFailure, 0));
 }
 
-QTEST_APPLESS_MAIN(TestGoogleCalendarApi)
+void TestGoogleCalendarApi::fetchCalendarListFailsWhenNotSignedIn()
+{
+    FakeNetworkAccessManager net;
+    AuthManager auth(nullptr, &net); // never signed in
+
+    GoogleCalendarApi api(&auth);
+    QSignalSpy failedSpy(&api, &GoogleCalendarApi::calendarListFetchFailed);
+
+    api.fetchCalendarList();
+
+    QCOMPARE(failedSpy.count(), 1);
+    QCOMPARE(failedSpy.first().at(0).toString(), QStringLiteral("You are not signed in."));
+    QCOMPARE(failedSpy.first().at(1).toBool(), false);
+    QCOMPARE(net.requests.count(), 0);
+}
+
+void TestGoogleCalendarApi::fetchCalendarListParsesSuccessResponse()
+{
+    FakeNetworkAccessManager net;
+    AuthManager auth(nullptr, &net);
+    auth.setSignedInForTesting(QStringLiteral("test-access-token"));
+
+    net.handler = [](const FakeNetworkAccessManager::RecordedRequest &) {
+        return FakeNetworkReply::Response{200, R"({
+            "items": [
+                {"id": "primary@example.com", "summary": "Primary", "accessRole": "owner"}
+            ]
+        })"};
+    };
+
+    GoogleCalendarApi api(&auth);
+    QSignalSpy fetchedSpy(&api, &GoogleCalendarApi::calendarListFetched);
+
+    api.fetchCalendarList();
+
+    QVERIFY(fetchedSpy.wait());
+    const auto calendars = fetchedSpy.first().at(0).value<QList<Calendar>>();
+    QCOMPARE(calendars.size(), 1);
+    QCOMPARE(calendars.first().id, QStringLiteral("primary@example.com"));
+    QCOMPARE(net.requests.count(), 1);
+    QCOMPARE(net.requests.first().operation, QNetworkAccessManager::GetOperation);
+}
+
+void TestGoogleCalendarApi::fetchCalendarList401IsSessionExpired()
+{
+    FakeNetworkAccessManager net;
+    AuthManager auth(nullptr, &net);
+    auth.setSignedInForTesting(QStringLiteral("test-access-token"));
+
+    net.handler = [](const FakeNetworkAccessManager::RecordedRequest &) {
+        return FakeNetworkReply::Response{401, "{}"};
+    };
+
+    GoogleCalendarApi api(&auth);
+    QSignalSpy failedSpy(&api, &GoogleCalendarApi::calendarListFetchFailed);
+
+    api.fetchCalendarList();
+
+    QVERIFY(failedSpy.wait());
+    QVERIFY(failedSpy.first().at(0).toString().contains(QStringLiteral("session may have expired")));
+    QCOMPARE(failedSpy.first().at(1).toBool(), false);
+}
+
+void TestGoogleCalendarApi::fetchCalendarListTransientFailureIsFlagged()
+{
+    FakeNetworkAccessManager net;
+    AuthManager auth(nullptr, &net);
+    auth.setSignedInForTesting(QStringLiteral("test-access-token"));
+
+    net.handler = [](const FakeNetworkAccessManager::RecordedRequest &) {
+        return FakeNetworkReply::Response{0, QByteArray(), QNetworkReply::ConnectionRefusedError,
+                                           QStringLiteral("Connection refused")};
+    };
+
+    GoogleCalendarApi api(&auth);
+    QSignalSpy failedSpy(&api, &GoogleCalendarApi::calendarListFetchFailed);
+
+    api.fetchCalendarList();
+
+    QVERIFY(failedSpy.wait());
+    QCOMPARE(failedSpy.first().at(1).toBool(), true);
+}
+
+void TestGoogleCalendarApi::setCalendarSelectedSendsPatchAndSucceeds()
+{
+    FakeNetworkAccessManager net;
+    AuthManager auth(nullptr, &net);
+    auth.setSignedInForTesting(QStringLiteral("test-access-token"));
+
+    GoogleCalendarApi api(&auth);
+    QSignalSpy failedSpy(&api, &GoogleCalendarApi::calendarSelectedChangeFailed);
+
+    api.setCalendarSelected(QStringLiteral("someone@example.com"), true);
+
+    QTest::qWait(50); // let the fake reply's queued completion run
+    QCOMPARE(failedSpy.count(), 0);
+    QCOMPARE(net.requests.count(), 1);
+    QCOMPARE(net.requests.first().verb, QStringLiteral("PATCH"));
+    QVERIFY(net.requests.first().url.toString().contains(QStringLiteral("someone%40example.com")));
+    QCOMPARE(net.requests.first().body, QByteArray(R"({"selected":true})"));
+}
+
+void TestGoogleCalendarApi::setCalendarSelectedFailureRollsBackWithMessage()
+{
+    FakeNetworkAccessManager net;
+    AuthManager auth(nullptr, &net);
+    auth.setSignedInForTesting(QStringLiteral("test-access-token"));
+
+    net.handler = [](const FakeNetworkAccessManager::RecordedRequest &) {
+        return FakeNetworkReply::Response{403, R"({"error":{"message":"Forbidden"}})"};
+    };
+
+    GoogleCalendarApi api(&auth);
+    QSignalSpy failedSpy(&api, &GoogleCalendarApi::calendarSelectedChangeFailed);
+
+    api.setCalendarSelected(QStringLiteral("cal1"), false);
+
+    QVERIFY(failedSpy.wait());
+    QCOMPARE(failedSpy.first().at(0).toString(), QStringLiteral("cal1"));
+    QCOMPARE(failedSpy.first().at(1).toBool(), true); // rolls back to !selected
+    QVERIFY(failedSpy.first().at(2).toString().contains(QStringLiteral("Forbidden")));
+}
+
+void TestGoogleCalendarApi::fetchEventsFailsWhenNotSignedIn()
+{
+    FakeNetworkAccessManager net;
+    AuthManager auth(nullptr, &net);
+
+    GoogleCalendarApi api(&auth);
+    QSignalSpy failedSpy(&api, &GoogleCalendarApi::eventsFetchFailed);
+
+    const quint64 requestId = api.fetchEvents(QStringLiteral("cal1"), QStringLiteral("2026-01-01T00:00:00Z"),
+                                               QStringLiteral("2026-02-01T00:00:00Z"));
+
+    QCOMPARE(failedSpy.count(), 1);
+    QCOMPARE(failedSpy.first().at(0).toULongLong(), requestId);
+    QCOMPARE(net.requests.count(), 0);
+}
+
+void TestGoogleCalendarApi::fetchEventsFollowsPaginationAndAccumulates()
+{
+    FakeNetworkAccessManager net;
+    AuthManager auth(nullptr, &net);
+    auth.setSignedInForTesting(QStringLiteral("test-access-token"));
+
+    net.handler = [](const FakeNetworkAccessManager::RecordedRequest &request) {
+        const QUrlQuery query(request.url);
+        if (query.queryItemValue(QStringLiteral("pageToken")).isEmpty()) {
+            return FakeNetworkReply::Response{200, R"({
+                "items": [{"id": "e1", "summary": "First", "start": {"date": "2026-08-24"}, "end": {"date": "2026-08-25"}}],
+                "nextPageToken": "page2"
+            })"};
+        }
+        return FakeNetworkReply::Response{200, R"({
+            "items": [{"id": "e2", "summary": "Second", "start": {"date": "2026-08-25"}, "end": {"date": "2026-08-26"}}]
+        })"};
+    };
+
+    GoogleCalendarApi api(&auth);
+    QSignalSpy fetchedSpy(&api, &GoogleCalendarApi::eventsFetched);
+
+    api.fetchEvents(QStringLiteral("cal1"), QStringLiteral("2026-08-01T00:00:00Z"),
+                     QStringLiteral("2026-09-01T00:00:00Z"));
+
+    QVERIFY(fetchedSpy.wait());
+    const auto events = fetchedSpy.first().at(2).value<QList<Event>>();
+    QCOMPARE(events.size(), 2);
+    QCOMPARE(events.at(0).id, QStringLiteral("e1"));
+    QCOMPARE(events.at(1).id, QStringLiteral("e2"));
+    QCOMPARE(net.requests.count(), 2);
+}
+
+void TestGoogleCalendarApi::fetchEvents401IsSessionExpired()
+{
+    FakeNetworkAccessManager net;
+    AuthManager auth(nullptr, &net);
+    auth.setSignedInForTesting(QStringLiteral("test-access-token"));
+
+    net.handler = [](const FakeNetworkAccessManager::RecordedRequest &) {
+        return FakeNetworkReply::Response{401, "{}"};
+    };
+
+    GoogleCalendarApi api(&auth);
+    QSignalSpy failedSpy(&api, &GoogleCalendarApi::eventsFetchFailed);
+
+    api.fetchEvents(QStringLiteral("cal1"), QStringLiteral("2026-08-01T00:00:00Z"),
+                     QStringLiteral("2026-09-01T00:00:00Z"));
+
+    QVERIFY(failedSpy.wait());
+    QVERIFY(failedSpy.first().at(2).toString().contains(QStringLiteral("session may have expired")));
+    QCOMPARE(failedSpy.first().at(3).toBool(), false);
+}
+
+void TestGoogleCalendarApi::createEventSucceeds()
+{
+    FakeNetworkAccessManager net;
+    AuthManager auth(nullptr, &net);
+    auth.setSignedInForTesting(QStringLiteral("test-access-token"));
+
+    net.handler = [](const FakeNetworkAccessManager::RecordedRequest &) {
+        return FakeNetworkReply::Response{200, "{}"};
+    };
+
+    GoogleCalendarApi api(&auth);
+    QSignalSpy createdSpy(&api, &GoogleCalendarApi::eventCreated);
+
+    NewEventRequest request;
+    request.calendarId = QStringLiteral("cal1");
+    request.summary = QStringLiteral("New event");
+    request.allDay = true;
+    request.startDate = QDate(2026, 8, 25);
+    request.endDateExclusive = QDate(2026, 8, 26);
+
+    api.createEvent(42, request);
+
+    QVERIFY(createdSpy.wait());
+    QCOMPARE(createdSpy.first().at(0).toULongLong(), quint64(42));
+    QCOMPARE(createdSpy.first().at(1).toString(), QStringLiteral("cal1"));
+    QCOMPARE(net.requests.first().operation, QNetworkAccessManager::PostOperation);
+}
+
+void TestGoogleCalendarApi::createEventForbiddenIncludesApiMessage()
+{
+    FakeNetworkAccessManager net;
+    AuthManager auth(nullptr, &net);
+    auth.setSignedInForTesting(QStringLiteral("test-access-token"));
+
+    net.handler = [](const FakeNetworkAccessManager::RecordedRequest &) {
+        return FakeNetworkReply::Response{403, R"({"error":{"message":"No access"}})"};
+    };
+
+    GoogleCalendarApi api(&auth);
+    QSignalSpy failedSpy(&api, &GoogleCalendarApi::eventCreateFailed);
+
+    NewEventRequest request;
+    request.calendarId = QStringLiteral("cal1");
+    request.summary = QStringLiteral("New event");
+    request.allDay = true;
+    request.startDate = QDate(2026, 8, 25);
+    request.endDateExclusive = QDate(2026, 8, 26);
+
+    api.createEvent(1, request);
+
+    QVERIFY(failedSpy.wait());
+    QVERIFY(failedSpy.first().at(2).toString().contains(QStringLiteral("No access")));
+}
+
+void TestGoogleCalendarApi::updateEventSucceeds()
+{
+    FakeNetworkAccessManager net;
+    AuthManager auth(nullptr, &net);
+    auth.setSignedInForTesting(QStringLiteral("test-access-token"));
+
+    net.handler = [](const FakeNetworkAccessManager::RecordedRequest &) {
+        return FakeNetworkReply::Response{200, "{}"};
+    };
+
+    GoogleCalendarApi api(&auth);
+    QSignalSpy updatedSpy(&api, &GoogleCalendarApi::eventUpdated);
+
+    NewEventRequest request;
+    request.calendarId = QStringLiteral("cal1");
+    request.summary = QStringLiteral("Updated");
+    request.allDay = true;
+    request.startDate = QDate(2026, 8, 25);
+    request.endDateExclusive = QDate(2026, 8, 26);
+
+    api.updateEvent(7, QStringLiteral("evt1"), request);
+
+    QVERIFY(updatedSpy.wait());
+    QCOMPARE(updatedSpy.first().at(2).toString(), QStringLiteral("evt1"));
+    QCOMPARE(net.requests.first().verb, QStringLiteral("PATCH"));
+}
+
+void TestGoogleCalendarApi::updateEventNotFoundIncludesApiMessage()
+{
+    FakeNetworkAccessManager net;
+    AuthManager auth(nullptr, &net);
+    auth.setSignedInForTesting(QStringLiteral("test-access-token"));
+
+    net.handler = [](const FakeNetworkAccessManager::RecordedRequest &) {
+        return FakeNetworkReply::Response{404, R"({"error":{"message":"Not Found"}})"};
+    };
+
+    GoogleCalendarApi api(&auth);
+    QSignalSpy failedSpy(&api, &GoogleCalendarApi::eventUpdateFailed);
+
+    NewEventRequest request;
+    request.calendarId = QStringLiteral("cal1");
+    request.summary = QStringLiteral("Updated");
+    request.allDay = true;
+    request.startDate = QDate(2026, 8, 25);
+    request.endDateExclusive = QDate(2026, 8, 26);
+
+    api.updateEvent(7, QStringLiteral("evt1"), request);
+
+    QVERIFY(failedSpy.wait());
+    QVERIFY(failedSpy.first().at(3).toString().contains(QStringLiteral("no longer exists")));
+}
+
+void TestGoogleCalendarApi::deleteEventSucceeds()
+{
+    FakeNetworkAccessManager net;
+    AuthManager auth(nullptr, &net);
+    auth.setSignedInForTesting(QStringLiteral("test-access-token"));
+
+    net.handler = [](const FakeNetworkAccessManager::RecordedRequest &) {
+        return FakeNetworkReply::Response{200, QByteArray()};
+    };
+
+    GoogleCalendarApi api(&auth);
+    QSignalSpy deletedSpy(&api, &GoogleCalendarApi::eventDeleted);
+
+    api.deleteEvent(3, QStringLiteral("cal1"), QStringLiteral("evt1"));
+
+    QVERIFY(deletedSpy.wait());
+    QCOMPARE(net.requests.first().verb, QStringLiteral("DELETE"));
+}
+
+void TestGoogleCalendarApi::deleteEventGoneIsTreatedAsSuccess()
+{
+    FakeNetworkAccessManager net;
+    AuthManager auth(nullptr, &net);
+    auth.setSignedInForTesting(QStringLiteral("test-access-token"));
+
+    net.handler = [](const FakeNetworkAccessManager::RecordedRequest &) {
+        return FakeNetworkReply::Response{410, QByteArray()};
+    };
+
+    GoogleCalendarApi api(&auth);
+    QSignalSpy deletedSpy(&api, &GoogleCalendarApi::eventDeleted);
+    QSignalSpy failedSpy(&api, &GoogleCalendarApi::eventDeleteFailed);
+
+    api.deleteEvent(3, QStringLiteral("cal1"), QStringLiteral("evt1"));
+
+    QVERIFY(deletedSpy.wait());
+    QCOMPARE(failedSpy.count(), 0);
+}
+
+QTEST_GUILESS_MAIN(TestGoogleCalendarApi)
 #include "test_googlecalendarapi.moc"

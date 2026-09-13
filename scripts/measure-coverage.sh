@@ -70,7 +70,7 @@ echo ">> build  ($JOBS jobs)"
 cmake --build "$BUILD_DIR" --parallel "$JOBS"
 
 echo ">> ctest  (this is what generates the .gcda hit counts)"
-( cd "$BUILD_DIR" && ctest --output-on-failure )
+( cd "$BUILD_DIR" && QT_QPA_PLATFORM=offscreen ctest --output-on-failure )
 
 echo ">> gcovr"
 mkdir -p "$OUT_DIR"
