@@ -86,6 +86,7 @@ public:
         QString verb; // "PATCH"/"DELETE"/... for CustomOperation, empty otherwise
         QUrl url;
         QByteArray body;
+        QByteArray authorization; // the raw "Authorization" request header, empty if none
     };
 
     std::function<FakeNetworkReply::Response(const RecordedRequest &)> handler =
@@ -107,7 +108,7 @@ protected:
         if (op == QNetworkAccessManager::CustomOperation)
             verb = QString::fromLatin1(request.attribute(QNetworkRequest::CustomVerbAttribute).toByteArray());
 
-        const RecordedRequest recorded{op, verb, request.url(), body};
+        const RecordedRequest recorded{op, verb, request.url(), body, request.rawHeader("Authorization")};
         requests.append(recorded);
 
         auto *reply = new FakeNetworkReply(op, request, this);

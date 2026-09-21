@@ -14,6 +14,8 @@
 #include <QNetworkRequest>
 #include <QUrlQuery>
 
+#include <utility>
+
 namespace {
 const QUrl kAuthorizationEndpoint(QStringLiteral("https://accounts.google.com/o/oauth2/v2/auth"));
 const QUrl kTokenEndpoint(QStringLiteral("https://oauth2.googleapis.com/token"));
@@ -26,6 +28,10 @@ constexpr qint64 kProactiveRefreshLeadMs = 60 * 1000;
 // kept alive and the refresh is simply retried this soon, rather than
 // tearing everything down.
 constexpr int kRefreshRetryIntervalMs = 60 * 1000;
+// If a token minted by a forced refresh is itself rejected within this long,
+// refreshAfterRejection() refuses to force another one: a refresh evidently
+// isn't what's wrong, and asking again would just loop on the token endpoint.
+constexpr qint64 kForcedRefreshCooldownMs = 60 * 1000;
 // A keychain read that fails because the backend isn't ready yet (autostart
 // racing the KWallet daemon / D-Bus bus) is retried this many times, this
 // far apart, before restore gives up.
@@ -111,7 +117,10 @@ AuthManager::AuthManager(QObject *parent, QNetworkAccessManager *network, Keycha
 
     m_proactiveRefreshTimer.setSingleShot(true);
     connect(&m_proactiveRefreshTimer, &QTimer::timeout, this, [this] {
-        refreshAccessToken(RefreshContext::Proactive);
+        // A forced refresh already in flight reschedules this timer (or, on
+        // failure, restarts the retry) when it completes.
+        if (!m_refreshInFlight)
+            refreshAccessToken(RefreshContext::Proactive);
     });
 }
 
@@ -171,7 +180,7 @@ void AuthManager::resolveCredentials(bool allowInteractiveFallback,
 
 void AuthManager::restoreSession()
 {
-    ++m_authEpoch;
+    beginNewAuthEpoch();
     m_keychainReadAttempts = 0;
     setState(AuthState::Restoring);
     readStoredRefreshToken();
@@ -243,6 +252,8 @@ void AuthManager::loadStoredRefreshTokenThenRestore()
 
 void AuthManager::refreshAccessToken(RefreshContext context)
 {
+    m_refreshInFlight = true;
+
     QUrlQuery params;
     params.addQueryItem(QStringLiteral("grant_type"), QStringLiteral("refresh_token"));
     params.addQueryItem(QStringLiteral("refresh_token"), m_refreshToken);
@@ -253,8 +264,11 @@ void AuthManager::refreshAccessToken(RefreshContext context)
     handleTokenReply(
         reply,
         [this, context](const TokenResponse &response) {
+            m_refreshInFlight = false;
             m_accessToken = response.accessToken;
             m_accessTokenExpiryUtc = response.expiresAtUtc;
+            m_accessTokenIssuedMs = QDateTime::currentMSecsSinceEpoch();
+            m_accessTokenFromForcedRefresh = context == RefreshContext::Forced;
             if (!response.refreshToken.isEmpty()) {
                 m_refreshToken = response.refreshToken;
                 saveRefreshToken(m_refreshToken);
@@ -266,9 +280,11 @@ void AuthManager::refreshAccessToken(RefreshContext context)
                 setState(AuthState::SignedIn);
                 emit signedIn();
             }
-            // Proactive refresh: state is already SignedIn, nothing else to do.
+            // Proactive/Forced refresh: state is already SignedIn, nothing else to do.
+            finishRefreshWaiters(RefreshResult::Refreshed);
         },
         [this, context](TokenFailure failure, const QString &) {
+            m_refreshInFlight = false;
             if (failure == TokenFailure::InvalidGrant) {
                 // The refresh token is genuinely dead (revoked, expired,
                 // password change). Discard it — retrying is pointless.
@@ -280,6 +296,7 @@ void AuthManager::refreshAccessToken(RefreshContext context)
                 // refresh failing mid-session interrupts an active session.
                 if (context == RefreshContext::Proactive)
                     emit errorOccurred(tr("Your session expired. Please sign in again."));
+                finishRefreshWaiters(RefreshResult::NotRecoverable);
                 return;
             }
 
@@ -287,7 +304,7 @@ void AuthManager::refreshAccessToken(RefreshContext context)
             // still presumed valid and is NEVER deleted here — doing so would
             // turn a network blip into a forced browser re-login and defeat
             // offline startup.
-            if (context == RefreshContext::Proactive) {
+            if (context != RefreshContext::Restore) {
                 // Keep the session; just try again shortly.
                 m_proactiveRefreshTimer.start(kRefreshRetryIntervalMs);
             } else {
@@ -299,7 +316,64 @@ void AuthManager::refreshAccessToken(RefreshContext context)
                 emit errorOccurred(tr("Couldn't reach Google to restore your session. "
                                       "Check your connection and try again."));
             }
+            finishRefreshWaiters(failure == TokenFailure::Transient ? RefreshResult::Unavailable
+                                                                    : RefreshResult::ServerError);
         });
+}
+
+void AuthManager::refreshAfterRejection(const QString &rejectedAccessToken, QObject *context,
+                                        const std::function<void(RefreshResult)> &done)
+{
+    if (m_state != AuthState::SignedIn || m_refreshToken.isEmpty()) {
+        done(RefreshResult::NotRecoverable);
+        return;
+    }
+
+    // Someone (the proactive timer, or another request's 401) already
+    // replaced the token this caller was rejected with: just retry.
+    if (rejectedAccessToken != m_accessToken) {
+        done(RefreshResult::Refreshed);
+        return;
+    }
+
+    if (m_refreshInFlight) {
+        m_refreshWaiters.append({context, done});
+        return;
+    }
+
+    // The token Google refused is one a forced refresh handed us moments
+    // ago, so it cannot have expired: refreshing did not fix whatever this
+    // is. Report it instead of hammering the token endpoint. (A token from
+    // restore/sign-in/the proactive timer is never held back: the first
+    // refresh is always worth trying.)
+    const qint64 ageMs = QDateTime::currentMSecsSinceEpoch() - m_accessTokenIssuedMs;
+    if (m_accessTokenFromForcedRefresh && ageMs >= 0 && ageMs < kForcedRefreshCooldownMs) {
+        done(RefreshResult::NotRecoverable);
+        return;
+    }
+
+    m_refreshWaiters.append({context, done});
+    refreshAccessToken(RefreshContext::Forced);
+}
+
+void AuthManager::finishRefreshWaiters(RefreshResult result)
+{
+    // Detach first: a callback may issue a request that 401s again and
+    // register a new waiter.
+    const QList<RefreshWaiter> waiters = std::exchange(m_refreshWaiters, {});
+    for (const RefreshWaiter &waiter : waiters) {
+        if (waiter.context)
+            waiter.done(result);
+    }
+}
+
+void AuthManager::beginNewAuthEpoch()
+{
+    ++m_authEpoch;
+    // Any token reply in flight now drops itself (see handleTokenReply), so
+    // it will never clear the in-flight flag or answer its waiters.
+    m_refreshInFlight = false;
+    finishRefreshWaiters(RefreshResult::NotRecoverable);
 }
 
 void AuthManager::signIn(QWidget *dialogParent)
@@ -307,7 +381,7 @@ void AuthManager::signIn(QWidget *dialogParent)
     if (m_state != AuthState::SignedOut)
         return;
 
-    ++m_authEpoch;
+    beginNewAuthEpoch();
     // Any exit from the interactive flow that lands back on SignedOut is a
     // sign-in failure; the success path clears this before signedIn().
     m_lastSignOutReason = SignOutReason::SignInFailed;
@@ -391,6 +465,8 @@ void AuthManager::exchangeAuthorizationCode(const QString &code)
 
             m_accessToken = response.accessToken;
             m_accessTokenExpiryUtc = response.expiresAtUtc;
+            m_accessTokenIssuedMs = QDateTime::currentMSecsSinceEpoch();
+            m_accessTokenFromForcedRefresh = false;
             m_refreshToken = response.refreshToken;
             saveRefreshToken(m_refreshToken);
             scheduleProactiveRefresh();
@@ -410,7 +486,7 @@ void AuthManager::signOut()
     if (m_state == AuthState::SignedOut)
         return;
 
-    ++m_authEpoch;
+    beginNewAuthEpoch();
     m_lastSignOutReason = SignOutReason::None;
     cleanupLoopbackServer();
     m_signInTimeoutTimer.stop();

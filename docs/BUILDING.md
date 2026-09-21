@@ -332,6 +332,26 @@ Reading the output:
 
 ---
 
+## Checking you're running the latest build
+
+After a rebuild, a change with no visible UI effect can't be told apart by
+eye, and `calendae --version` won't help: it is resolved at CMake configure
+time, so every rebuild of the same commit prints the same string.
+
+```sh
+scripts/is-running-latest.sh                                    # every running calendae
+scripts/is-running-latest.sh build-lean/calendae                # only that binary
+scripts/is-running-latest.sh -c 'renew your session'            # also: change is in the running code
+```
+
+It compares the running process's image (`/proc/<pid>/exe`) with the file on
+disk and prints `CURRENT` or `STALE` (exit status 0 / 1; 2 if nothing
+matching is running). `-c` additionally requires a marker string from the
+change you're verifying, so it proves the build contains the change and not
+only that it is the newest build.
+
+---
+
 ## Measuring test coverage
 
 ```sh

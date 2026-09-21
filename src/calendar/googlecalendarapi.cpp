@@ -209,6 +209,61 @@ QNetworkRequest GoogleCalendarApi::authorizedRequest(const QUrl &url) const
     return request;
 }
 
+void GoogleCalendarApi::sendAuthorized(const std::function<QNetworkReply *()> &issue,
+                                       const std::function<void(QNetworkReply *)> &onFinished)
+{
+    const auto complete = [onFinished](QNetworkReply *reply) {
+        reply->deleteLater();
+        onFinished(reply);
+    };
+
+    // The token this attempt is sent with, so AuthManager can tell a caller
+    // whose token was already replaced from one that needs a real refresh.
+    QNetworkReply *reply = issue();
+    const QString usedToken = m_authManager->accessToken();
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, usedToken, issue, complete] {
+        if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 401) {
+            complete(reply);
+            return;
+        }
+
+        m_authManager->refreshAfterRejection(
+            usedToken, this, [this, reply, issue, complete](AuthManager::RefreshResult result) {
+                if (result != AuthManager::RefreshResult::Refreshed) {
+                    m_lastUnauthorizedResult = result;
+                    complete(reply);
+                    return;
+                }
+
+                reply->deleteLater();
+                QNetworkReply *retry = issue();
+                connect(retry, &QNetworkReply::finished, this, [this, retry, complete] {
+                    // A brand-new token refused too: refreshing again can't help.
+                    m_lastUnauthorizedResult = AuthManager::RefreshResult::NotRecoverable;
+                    complete(retry);
+                });
+            });
+    });
+}
+
+QString GoogleCalendarApi::unauthorizedMessage() const
+{
+    switch (m_lastUnauthorizedResult) {
+    case AuthManager::RefreshResult::Unavailable:
+        return tr("Couldn't reach Google to renew your session. Check your connection.");
+    case AuthManager::RefreshResult::ServerError:
+        return tr("Google couldn't renew your session right now. Will try again shortly.");
+    default:
+        return tr("Your session may have expired. Please sign in again.");
+    }
+}
+
+bool GoogleCalendarApi::unauthorizedIsTransient() const
+{
+    return m_lastUnauthorizedResult == AuthManager::RefreshResult::Unavailable;
+}
+
 void GoogleCalendarApi::fetchCalendarList()
 {
     if (m_authManager->state() != AuthManager::AuthState::SignedIn) {
@@ -216,15 +271,13 @@ void GoogleCalendarApi::fetchCalendarList()
         return;
     }
 
-    QNetworkReply *reply = m_network->get(authorizedRequest(kCalendarListEndpoint));
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        reply->deleteLater();
-
+    sendAuthorized([this] { return m_network->get(authorizedRequest(kCalendarListEndpoint)); },
+                   [this](QNetworkReply *reply) {
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const QByteArray body = reply->readAll();
 
         if (status == 401) {
-            emit calendarListFetchFailed(tr("Your session may have expired. Please sign in again."), false);
+            emit calendarListFetchFailed(unauthorizedMessage(), unauthorizedIsTransient());
             return;
         }
 
@@ -252,13 +305,15 @@ void GoogleCalendarApi::setCalendarSelected(const QString &calendarId, bool sele
         return;
     }
 
-    QNetworkRequest request = authorizedRequest(QUrl(calendarListEntryUrl(calendarId)));
-    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-
-    QNetworkReply *reply = m_network->sendCustomRequest(request, "PATCH", buildSelectedPatchBody(selected));
-    connect(reply, &QNetworkReply::finished, this, [this, reply, calendarId, selected] {
-        reply->deleteLater();
-
+    const QUrl url(calendarListEntryUrl(calendarId));
+    const QByteArray patchBody = buildSelectedPatchBody(selected);
+    sendAuthorized(
+        [this, url, patchBody] {
+            QNetworkRequest request = authorizedRequest(url);
+            request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+            return m_network->sendCustomRequest(request, "PATCH", patchBody);
+        },
+        [this, calendarId, selected](QNetworkReply *reply) {
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status >= 200 && status < 300)
             return;
@@ -266,7 +321,7 @@ void GoogleCalendarApi::setCalendarSelected(const QString &calendarId, bool sele
         const QByteArray body = reply->readAll();
         QString message;
         if (status == 401)
-            message = tr("Your session may have expired. Please sign in again.");
+            message = unauthorizedMessage();
         else if (body.isEmpty())
             message = tr("Could not update calendar visibility: %1").arg(reply->errorString());
         else
@@ -293,18 +348,16 @@ void GoogleCalendarApi::fetchEventsPage(quint64 requestId, const QString &calend
                                          const QString &pageToken, QList<Event> accumulated, int pagesFetched)
 {
     const QUrl url = buildEventsListUrl(calendarId, timeMinRfc3339, timeMaxRfc3339, pageToken);
-    QNetworkReply *reply = m_network->get(authorizedRequest(url));
-    connect(reply, &QNetworkReply::finished, this,
-            [this, reply, requestId, calendarId, timeMinRfc3339, timeMaxRfc3339,
-             accumulated = std::move(accumulated), pagesFetched]() mutable {
-                reply->deleteLater();
-
+    sendAuthorized(
+        [this, url] { return m_network->get(authorizedRequest(url)); },
+        [this, requestId, calendarId, timeMinRfc3339, timeMaxRfc3339,
+         accumulated = std::move(accumulated), pagesFetched](QNetworkReply *reply) mutable {
                 const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
                 const QByteArray body = reply->readAll();
 
                 if (status == 401) {
-                    emit eventsFetchFailed(requestId, calendarId,
-                                            tr("Your session may have expired. Please sign in again."), false);
+                    emit eventsFetchFailed(requestId, calendarId, unauthorizedMessage(),
+                                            unauthorizedIsTransient());
                     return;
                 }
 
@@ -348,13 +401,15 @@ void GoogleCalendarApi::createEvent(quint64 requestId, const NewEventRequest &re
         return;
     }
 
-    QNetworkRequest networkRequest = authorizedRequest(QUrl(calendarEventsCollectionUrl(request.calendarId)));
-    networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-
-    QNetworkReply *reply = m_network->post(networkRequest, buildCreateEventBody(request));
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestId, calendarId = request.calendarId] {
-        reply->deleteLater();
-
+    const QUrl url(calendarEventsCollectionUrl(request.calendarId));
+    const QByteArray requestBody = buildCreateEventBody(request);
+    sendAuthorized(
+        [this, url, requestBody] {
+            QNetworkRequest networkRequest = authorizedRequest(url);
+            networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+            return m_network->post(networkRequest, requestBody);
+        },
+        [this, requestId, calendarId = request.calendarId](QNetworkReply *reply) {
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status >= 200 && status < 300) {
             emit eventCreated(requestId, calendarId);
@@ -364,7 +419,7 @@ void GoogleCalendarApi::createEvent(quint64 requestId, const NewEventRequest &re
         const QByteArray body = reply->readAll();
         QString message;
         if (status == 401)
-            message = tr("Your session may have expired. Please sign in again.");
+            message = unauthorizedMessage();
         else if (status == 403)
             message = tr("You don't have permission to add events to this calendar: %1").arg(extractApiErrorMessage(body, status));
         else if (body.isEmpty())
@@ -382,13 +437,15 @@ void GoogleCalendarApi::updateEvent(quint64 requestId, const QString &eventId, c
         return;
     }
 
-    QNetworkRequest networkRequest = authorizedRequest(buildEventDetailUrl(request.calendarId, eventId));
-    networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-
-    QNetworkReply *reply = m_network->sendCustomRequest(networkRequest, "PATCH", buildUpdateEventBody(request));
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestId, eventId, calendarId = request.calendarId] {
-        reply->deleteLater();
-
+    const QUrl url = buildEventDetailUrl(request.calendarId, eventId);
+    const QByteArray requestBody = buildUpdateEventBody(request);
+    sendAuthorized(
+        [this, url, requestBody] {
+            QNetworkRequest networkRequest = authorizedRequest(url);
+            networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+            return m_network->sendCustomRequest(networkRequest, "PATCH", requestBody);
+        },
+        [this, requestId, eventId, calendarId = request.calendarId](QNetworkReply *reply) {
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status >= 200 && status < 300) {
             emit eventUpdated(requestId, calendarId, eventId);
@@ -398,7 +455,7 @@ void GoogleCalendarApi::updateEvent(quint64 requestId, const QString &eventId, c
         const QByteArray body = reply->readAll();
         QString message;
         if (status == 401)
-            message = tr("Your session may have expired. Please sign in again.");
+            message = unauthorizedMessage();
         else if (status == 403)
             message = tr("You don't have permission to edit this event: %1").arg(extractApiErrorMessage(body, status));
         else if (status == 404)
@@ -418,12 +475,10 @@ void GoogleCalendarApi::deleteEvent(quint64 requestId, const QString &calendarId
         return;
     }
 
-    const QNetworkRequest networkRequest = authorizedRequest(buildEventDetailUrl(calendarId, eventId));
-
-    QNetworkReply *reply = m_network->sendCustomRequest(networkRequest, "DELETE");
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestId, calendarId, eventId] {
-        reply->deleteLater();
-
+    const QUrl url = buildEventDetailUrl(calendarId, eventId);
+    sendAuthorized(
+        [this, url] { return m_network->sendCustomRequest(authorizedRequest(url), "DELETE"); },
+        [this, requestId, calendarId, eventId](QNetworkReply *reply) {
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         // 410 Gone means the event was already deleted server-side; Google's
         // own guidance treats this as "no action needed," so it's a soft
@@ -436,7 +491,7 @@ void GoogleCalendarApi::deleteEvent(quint64 requestId, const QString &calendarId
         const QByteArray body = reply->readAll();
         QString message;
         if (status == 401)
-            message = tr("Your session may have expired. Please sign in again.");
+            message = unauthorizedMessage();
         else if (status == 403)
             message = tr("You don't have permission to delete this event: %1").arg(extractApiErrorMessage(body, status));
         else if (status == 404)

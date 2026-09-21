@@ -10,6 +10,7 @@
 #include <QDateTime>
 #include <QNetworkReply>
 #include <QObject>
+#include <QPointer>
 #include <QTimer>
 #include <QUrl>
 #include <functional>
@@ -128,6 +129,30 @@ public:
     // Exposed for unit testing: pure classification, no I/O.
     static KeychainReadOutcome classifyKeychainReadError(QKeychain::Error error);
 
+    // Outcome of refreshAfterRejection(). Kept apart on purpose: only
+    // NotRecoverable means "sign in again"; the other failures leave the
+    // stored refresh token — and so the session — untouched.
+    enum class RefreshResult {
+        Refreshed,      // a new access token is available: retry the request
+        NotRecoverable, // no refresh token, it was rejected (invalid_grant, session now SignedOut),
+                        // or a freshly minted token was still refused — refreshing again won't help
+        Unavailable,    // couldn't reach the token endpoint — session presumed valid, retried later
+        ServerError,    // the token endpoint answered with something else (5xx/429/invalid_client)
+    };
+
+    // For the API layer: Google answered 401 to a request sent with
+    // `rejectedAccessToken`. That means the *access* token is unusable (most
+    // often because the machine slept past its expiry while the monotonic
+    // refresh timer stood still), not that the session is gone, so try to
+    // mint a new one from the refresh token. Concurrent callers share one
+    // token request; a caller whose token was already replaced returns
+    // Refreshed immediately; a token that a forced refresh minted moments ago
+    // and that is still refused is NotRecoverable rather than refreshed
+    // again, so a persistent 401 cannot turn into a refresh loop. `done` is
+    // skipped if `context` dies first.
+    void refreshAfterRejection(const QString &rejectedAccessToken, QObject *context,
+                               const std::function<void(RefreshResult)> &done);
+
 public slots:
     // Attempts to silently restore a previous session from a stored
     // refresh token. Never shows any UI. Call once at startup.
@@ -156,6 +181,7 @@ private:
     enum class RefreshContext {
         Restore,
         Proactive,
+        Forced, // refreshAfterRejection(): the API layer got a 401
     };
 
     void setState(AuthState state);
@@ -174,6 +200,8 @@ private:
     void beginSignInFlow();
     void cleanupLoopbackServer();
     void scheduleProactiveRefresh();
+    void beginNewAuthEpoch();
+    void finishRefreshWaiters(RefreshResult result);
     void saveRefreshToken(const QString &token);
     void deleteStoredRefreshToken();
     void revokeStoredRefreshTokenBestEffort();
@@ -212,6 +240,22 @@ private:
     // warning fires at most once per run however many times the token is
     // rewritten (proactive refresh rotates it).
     bool m_insecureStorageReported = false;
+
+    // True from the moment a refresh_token request is sent until its reply
+    // is handled (or superseded by a new epoch). Lets a forced refresh join
+    // an in-flight one instead of racing it.
+    bool m_refreshInFlight = false;
+    struct RefreshWaiter
+    {
+        QPointer<QObject> context;
+        std::function<void(RefreshResult)> done;
+    };
+    QList<RefreshWaiter> m_refreshWaiters;
+    // Wall-clock (ms since epoch) of the last access token issued. Wall
+    // clock, not a monotonic timer, precisely so a suspend can't make a
+    // stale token look fresh.
+    qint64 m_accessTokenIssuedMs = 0;
+    bool m_accessTokenFromForcedRefresh = false; // the current token came from refreshAfterRejection()
 
     QTimer m_proactiveRefreshTimer;
     QTimer m_signInTimeoutTimer;

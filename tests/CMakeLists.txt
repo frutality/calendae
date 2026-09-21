@@ -4,6 +4,7 @@ set(TGC_TEST_NAMES
     test_pkce
     test_tokenresponse
     test_authmanager
+    test_wakefromsuspend
     test_credentialsprovider
     test_keychainjob
     test_oauthloopbackserver

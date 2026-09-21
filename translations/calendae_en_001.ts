@@ -326,6 +326,16 @@
         <translation>Your session may have expired. Please sign in again.</translation>
     </message>
     <message>
+        <location filename="../src/calendar/googlecalendarapi.cpp" line="254"/>
+        <source>Couldn&apos;t reach Google to renew your session. Check your connection.</source>
+        <translation>Couldn&apos;t reach Google to renew your session. Check your connection.</translation>
+    </message>
+    <message>
+        <location filename="../src/calendar/googlecalendarapi.cpp" line="256"/>
+        <source>Google couldn&apos;t renew your session right now. Will try again shortly.</source>
+        <translation>Google couldn&apos;t renew your session right now. Will try again shortly.</translation>
+    </message>
+    <message>
         <location filename="../src/calendar/googlecalendarapi.cpp" line="232"/>
         <location filename="../src/calendar/googlecalendarapi.cpp" line="240"/>
         <source>Could not load calendars: %1</source>

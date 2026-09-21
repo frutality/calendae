@@ -9,6 +9,8 @@
 #include <QNetworkReply>
 #include <QObject>
 
+#include <functional>
+
 QT_BEGIN_NAMESPACE
 class QNetworkAccessManager;
 class QNetworkRequest;
@@ -16,10 +18,16 @@ QT_END_NAMESPACE
 
 // Thin wrapper over the Google Calendar REST API's calendarList endpoints.
 // Reads the bearer token from AuthManager on every request (never caches
-// it), so it always uses whatever AuthManager currently holds. Never
-// attempts to refresh tokens itself — a 401 here is treated as a hard,
-// user-visible error; AuthManager's own proactive refresh (60s before
-// expiry) is the sole mechanism keeping the token valid in normal use.
+// it), so it always uses whatever AuthManager currently holds. It does not
+// refresh tokens itself either: AuthManager's proactive refresh (60s before
+// expiry) keeps the token valid in normal use, but that timer is monotonic
+// and stands still while the machine is suspended, so the token can be
+// expired on wake. A 401 therefore makes the request ask
+// AuthManager::refreshAfterRejection() for a new access token and be
+// re-sent once. Only if that cannot help (or the retry is refused too) does
+// the 401 become the user-visible "session may have expired" error; a
+// failure to *reach* the token endpoint is reported as such, not as a dead
+// session.
 class GoogleCalendarApi : public QObject
 {
     Q_OBJECT
@@ -107,6 +115,20 @@ signals:
 
 private:
     QNetworkRequest authorizedRequest(const QUrl &url) const;
+
+    // Sends via `issue` (which must build its request with
+    // authorizedRequest() each time it is called, so a retry picks up the
+    // new token) and hands the final reply to `onFinished`, which owns
+    // neither deleting it nor retrying. A 401 triggers at most ONE refresh +
+    // re-send per call: a 401 on the retry is final. Safe for POST/PATCH/
+    // DELETE too — a 401 means the request was never executed.
+    void sendAuthorized(const std::function<QNetworkReply *()> &issue,
+                        const std::function<void(QNetworkReply *)> &onFinished);
+
+    // Wording/classification for a final 401, per why refreshing didn't help.
+    QString unauthorizedMessage() const;
+    bool unauthorizedIsTransient() const;
+
     void fetchEventsPage(quint64 requestId, const QString &calendarId, const QString &timeMinRfc3339,
                           const QString &timeMaxRfc3339, const QString &pageToken, QList<Event> accumulated,
                           int pagesFetched = 0);
@@ -114,6 +136,9 @@ private:
     AuthManager *m_authManager;
     QNetworkAccessManager *m_network; // borrowed from m_authManager, not owned
     quint64 m_nextFetchRequestId = 1;
+    // Why the last 401 reaching a handler could not be recovered; read by
+    // unauthorizedMessage()/unauthorizedIsTransient() while that handler runs.
+    AuthManager::RefreshResult m_lastUnauthorizedResult = AuthManager::RefreshResult::NotRecoverable;
 };
 
 #endif // GOOGLECALENDARAPI_H
